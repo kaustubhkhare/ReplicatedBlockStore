@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package ds;
+
+message MessageInt {
+  int32 value = 1;
+}
+message MessageDouble {
+  double value = 1;
+}
+message MessageString {
+  string value = 1;
+}
+message MessageComplex {
+  int32 num1 = 1;
+  int64 num2 = 2;
+  double num3 = 3;
+  string string1 = 4;
+}
+
+service BasicRPC {
+  rpc SayHelloInt (MessageInt) returns (MessageInt) {}
+  rpc SayHelloDouble (MessageDouble) returns (MessageDouble) {}
+  rpc SayHelloString (MessageString) returns (MessageString) {}
+  rpc SayHelloComplex (MessageComplex) returns (MessageInt) {}
+  rpc SayServerStreamingString(MessageInt) returns (stream MessageString) {}
+  rpc SayClientStreamingString(stream MessageString) returns (MessageInt) {}
+  rpc SayBiStreamingInt(stream MessageInt) returns (stream MessageInt) {}
+}
+
