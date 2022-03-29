@@ -2,8 +2,33 @@ syntax = "proto3";
 
 package ds;
 
+message ReadRequest {
+    int64 offset = 1;
+}
+
+message ReadResponse {
+    bytes data = 1;
+}
+
+message WriteRequest {
+    int32 offset = 1;
+    bytes data = 2;
+    int32 data_length = 3;
+}
+
+message WriteResponse {
+    int32 bytes_written = 1;
+}
+
+message CommitRequest {
+    int32 offset = 1;
+}
+
+message AckResponse {
+    bool done = 1;
+}
 message MessageInt {
-  int32 value = 1;
+    int32 value = 1;
 }
 message MessageDouble {
   double value = 1;
@@ -18,7 +43,12 @@ message MessageComplex {
   string string1 = 4;
 }
 
-service BasicRPC {
+service gRPCService {
+  rpc c_read (ReadRequest) returns (ReadResponse) {}
+  rpc c_write (WriteRequest) returns (WriteResponse) {}
+  rpc s_read (ReadRequest) returns (ReadResponse) {}
+  rpc s_write (WriteRequest) returns (AckResponse) {}
+  rpc s_commit (CommitRequest) returns (AckResponse) {}
   rpc SayHelloInt (MessageInt) returns (MessageInt) {}
   rpc SayHelloDouble (MessageDouble) returns (MessageDouble) {}
   rpc SayHelloString (MessageString) returns (MessageString) {}

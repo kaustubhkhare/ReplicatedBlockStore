@@ -17,7 +17,6 @@ find_package(protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
-
+include_directories(project3 include)
 add_subdirectory(external)
 add_subdirectory(src)
-
