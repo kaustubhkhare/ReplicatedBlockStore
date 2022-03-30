@@ -3,6 +3,12 @@
 #include <grpcpp/grpcpp.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdexcept>
+#include <iostream>
+#include <fstream>
 
 #include "constants.h"
 #include "helper.h"
@@ -25,7 +31,7 @@ private:
         int length;
         std::string data;
     } Info;
-    int fd;
+    std::string filename;
     enum class BackupState {ALIVE, DEAD};
     std::atomic<BackupState> backup_state;
     enum class ServerState: int32_t { PRIMARY = 0, BACKUP };
@@ -35,6 +41,39 @@ private:
 //    std::vector<std::future<Status>> pending_futures;
 
 public:
+    void create_file(const std::string filename) {
+        std::fstream stream;
+        stream.open(filename, std::fstream::in | std::fstream::out | std::fstream::app);
+
+        if (!stream.is_open()) {
+            std::cout << "File doesn't exist. Creating file.";
+            stream.open(filename,  std::fstream::in | std::fstream::out | std::fstream::trunc);
+            stream.close();
+        }
+    }
+
+    int write(const char* buf, int offset, int size) {
+        std::fstream outfile;
+        LOG_DEBUG_MSG("Opening file ", filename, " for writing");
+        outfile.open(filename);
+        outfile.seekp(offset);
+        outfile.write(buf, size);
+        outfile.close();
+
+        return size;
+    }
+
+    int read(char* buf, int offset, int size) {
+        std::ifstream infile;
+        LOG_DEBUG_MSG("Opening file ", filename, " for reading");
+        infile.open(filename, std::ios::binary);
+        infile.seekg(offset);
+        infile.read(buf, size);
+        infile.close();
+
+        return size;
+    }
+
     auto get_server_state() const {
         return current_server_state_.load(std::memory_order_relaxed);
     }
@@ -54,20 +93,11 @@ public:
 
     explicit gRPCServiceImpl(std::shared_ptr<Channel> channel,
                              const std::string filename, bool primary = true) :
-            stub_(gRPCService::NewStub(channel)){
+            stub_(gRPCService::NewStub(channel)) {
         current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
-        LOG_DEBUG_MSG("constructor called");
-        fd = open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
-        if (fd < 0) {
-	        LOG_ERR_MSG("server_init: Cannot open file: " + filename);
-        }
-        int ret = ftruncate(fd, constants::FILE_SIZE);
-        if (ret < 0) {
-            LOG_ERR_MSG("server_init: Cannot increase file size\n");
-        }
-        int size = lseek(fd, 0, SEEK_END);
-        LOG_DEBUG_MSG("file size is ", size);
-        lseek(fd, 0, SEEK_CUR);
+        this->filename = filename;
+        create_file(filename);
+        LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
         backup_state = BackupState::ALIVE;
         current_server_state_ = ServerState::PRIMARY;
     }
@@ -77,8 +107,9 @@ public:
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
             char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->offset());
-            LOG_DEBUG_MSG(bytes_read, " bytes read");
+            int flag = read(buf, readRequest->offset(), constants::BLOCK_SIZE);
+            if (flag == -1)
+                return Status::CANCELLED;
             readResponse->set_data(buf);
             delete[] buf;
         }
@@ -89,12 +120,6 @@ public:
                    ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
-//            for (int i = 0; i < pending_futures.size(); i++) {
-//                if (pending_futures[i].valid()) {
-//                        int address = pending_futures[i].get();
-//                        temp_data.erase(address);
-//                }
-//            }
             BlockState state = BlockState::DISK;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int)writeRequest->offset()] = &info;
@@ -106,18 +131,16 @@ public:
                 LOG_DEBUG_MSG("back from backup");
             }
             LOG_DEBUG_MSG("write from map to file");
-            int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->offset());
-            writeResponse->set_bytes_written(bytes);
+            int flag = write(writeRequest->data().c_str(), writeRequest->offset(), writeRequest->data_length());
+            if (flag == -1)
+                return Status::CANCELLED;
+            writeResponse->set_bytes_written(writeRequest->data_length());
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
                 ClientContext context;
                 ds::CommitRequest commitRequest;
                 commitRequest.set_offset(writeRequest->offset());
                 ds::AckResponse ackResponse;
-//                std::future<Status> f = std::async(std::launch::async,
-//                    stub_->s_commit, &context, commitRequest, &ackResponse);
-//                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
-//                pending_futures.push_back(std::move(f));
                 LOG_DEBUG_MSG("committed to backup");
             }
             return Status::OK;
@@ -142,16 +165,12 @@ public:
         LOG_DEBUG_MSG("calling commit on backup");
         BlockState diskState = BlockState::DISK;
         Info *info = temp_data[(int)commitRequest->offset()];
-        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->offset());
+        write(info->data.c_str(), commitRequest->offset(), info->length);
+//        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->offset());
         temp_data.erase((int)commitRequest->offset());
         return Status::OK;
     }
 };
-
-//gRPCServiceImpl::~gRPCServiceImpl() {
-//    LOG_MSG_DEBUG("Calling destructor\n");
-//    close(fd);
-//}
 
 int main(int argc, char *argv[]) {
     LOG_DEBUG_MSG("Starting primary");
@@ -159,20 +178,12 @@ int main(int argc, char *argv[]) {
     gRPCServiceImpl service(grpc::CreateChannel("localhost:50053",
         grpc::InsecureChannelCredentials()), argv[1]);
     ServerBuilder builder;
-    // Listen on the given address without any authentication mechanism.
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.SetMaxSendMessageSize(INT_MAX);
     builder.SetMaxReceiveMessageSize(INT_MAX);
     builder.SetMaxMessageSize(INT_MAX);
-
-    // Register "service" as the instance through which we'll communicate with
-    // clients. In this case it corresponds to an *synchronous* service.
     builder.RegisterService(&service);
-    // Finally assemble the server.
     std::unique_ptr<Server> server(builder.BuildAndStart());
     std::cout << "Server listening on " << server_address << std::endl;
-
-    // Wait for the server to shutdown. Note that some other thread must be
-    // responsible for shutting down the server for this call to ever return.
     server->Wait();
 }
