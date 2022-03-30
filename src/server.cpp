@@ -119,19 +119,19 @@ public:
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
         ASS(current_server_state_ == ServerState::PRIMARY, "waiting for reads in primary shouldn't happen");
-        std::vector<int> blocks = get_blocks_involved(readRequest->offset, BLOCK_SIZE);
+        std::vector<int> blocks = get_blocks_involved(readRequest->address, constants::BLOCK_SIZE);
         // change this to get signaled when the entry is removed from the map (write to that block is complete)
-        boolean can_read_all = false;
+        bool can_read_all = false;
         while(can_read_all) {
             can_read_all = true;
             for (const int &b: blocks) {
-                if (temp_data[b] != null && temp_data[b]->state == BlockState::LOCKED) {
+                if (temp_data.count(b) == 0 && temp_data[b]->state == BlockState::LOCKED) {
                     can_read_all = false;
                     break;
                 }
             }
             if (!can_read_all) {
-                std::this_thread.sleep_for(std::chrono::nanoseconds(1));
+                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             }
         }
     }
@@ -159,10 +159,10 @@ public:
     }
     // Returns the block indices for the address and data_length. In this case return vector size is at most 2
     std::vector<int> get_blocks_involved(const int address, const int data_length) {
-        int first_block = address / BLOCK_SIZE;
-        int end_of_first_block = first_block + BLOCK_SIZE - 1,
-            first_block_size_left = end_of_first_block - first_block * BLOCK_SIZE;
-        std::vector blocks_involved;
+        int first_block = address / constants::BLOCK_SIZE;
+        int end_of_first_block = first_block + BLOCK_SIZE - 1;
+        int first_block_size_left = end_of_first_block - first_block * BLOCK_SIZE;
+        std::vector<int> blocks_involved;
         blocks_involved.push_back(first_block);
         if (data_length > first_block_size_left) {
             blocks_involved.push_back(first_block + 1);
@@ -182,13 +182,15 @@ public:
 
     void get_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
         reintegration_lock.lock();
-        std::vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length);
         if (blocks.size() == 1) {
             per_block_locks[blocks[0]].lock();
         } else {
             // max size can only be 2, same thing can be generalized to n, no need in this case.
             std::mutex first_block_lock = per_block_locks[blocks[0]],
                         second_block_lock = per_block_locks[blocks[1]];
+            bool first_block_lock_acquired = false,
+                    second_block_lock_acquired = false;
 
             while(first_block_lock_acquired && second_block_lock_acquired) {
                 // try acquiring the locks
@@ -197,10 +199,10 @@ public:
                 // if both obtained, will get out of loop, if not both obtained, release obtained locks
                 if (!first_block_lock_acquired || !second_block_lock_acquired) {
                     if (first_block_lock_acquired) {
-                        first_block_lock.release();
+                        first_block_lock.unlock();
                     }
                     if (second_block_lock_acquired) {
-                        second_block_lock.release();
+                        second_block_lock.unlock();
                     }
                 }
             }
@@ -208,9 +210,9 @@ public:
     }
 
     void release_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
-        std::vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length);
         for (const int &block: blocks) {
-            per_block_locks[block].release();
+            per_block_locks[block].unlock();
         }
         reintegration_lock.unlock();
     }
@@ -225,7 +227,7 @@ public:
         for (auto it: temp_data) {
             Info *info = it.second;
             if (info->state == BlockState::DISK) {
-                int *address = reintegrationResponse->add_addressss();
+                int *address = reintegrationResponse->add_addresses();
                 *address = it.first;
                 int *data_length = reintegrationResponse->add_data_lengths();
                 *data_length = info->length;
