@@ -99,6 +99,7 @@ int main(int argc, char *argv[]) {
     auto bufRead = client.p_read(address);
     LOG_DEBUG_MSG("Reading", bufRead);
 
+    // IMP TODO : check hash of full block not just the part written or read till data size
     std::size_t hin = std::hash<std::string>{}(buf);
     std::size_t hout = std::hash<std::string>{}(bufRead);
     if (hin != hout) {
