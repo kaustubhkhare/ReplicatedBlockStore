@@ -2,6 +2,9 @@
 
 #include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include <grpcpp/grpcpp.h>
+#include <openssl/sha.h>
+#include <iomanip>
+#include <iostream>
 #include <signal.h>
 #include <chrono>
 #include <ctime>
@@ -10,6 +13,12 @@
 #include <numeric>
 #include <fstream>
 #include <memory>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "constants.h"
 #include "helper.h"
@@ -22,16 +31,11 @@ using grpc::Status;
 using ds::gRPCService;
 
 class GRPCClient{
-private:
-    std::unique_ptr<gRPCService::Stub> p_stub_;
-    std::unique_ptr<gRPCService::Stub> b_stub_;
 public:
-    GRPCClient(std::shared_ptr<Channel> channel1, std::shared_ptr<Channel> channel2) :
-    p_stub_(gRPCService::NewStub(channel1)), b_stub_(gRPCService::NewStub(channel2)) {
-        //
-    }
+    GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
+    p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
 
-    std::string read(int offset) {
+    std::string p_read(int offset) {
         LOG_DEBUG_MSG("Starting read");
         ds::ReadRequest readRequest;
         readRequest.set_offset(offset);
@@ -40,16 +44,11 @@ public:
         LOG_DEBUG_MSG("sending read to server");
         Status status = p_stub_->c_read(&context, readRequest, &readResponse);
         LOG_DEBUG_MSG("back from server");
-//        if (!status.ok()) {
-//            return -ENONET;
-//        }
-//        if (readResponse.ret() < 0) {
-//            return readResponse.ret();
-//        }
         return readResponse.data();
     }
 
-    int write(int offset, int length, const char* wr_buffer) {
+    int p_write(int offset, int length, const char* wr_buffer){
+//    , std::unique_ptr<std::string> wr_buffer) {
         LOG_DEBUG_MSG("Starting client write");
         ds::WriteRequest writeRequest;
         writeRequest.set_offset(offset);
@@ -64,27 +63,45 @@ public:
         if (!status.ok()) {
             return -ENONET;
         }
-//        if (writeResponse.ret() < 0) {
-//            return writeResponse.ret();
-//        }
         return writeResponse.bytes_written();
+    }
+
+private:
+    std::unique_ptr<gRPCService::Stub> p_stub_;
+    std::unique_ptr<gRPCService::Stub> b_stub_;
+    static std::string hash_str(const char* src) {
+        auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
+        SHA256(reinterpret_cast<const unsigned char*>(src), strlen(src),
+               digest.get());
+        std::stringstream ss;
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+            ss << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<int>(digest[i]);
+        }
+        return ss.str();
     }
 };
 
 int main(int argc, char *argv[]) {
-    GRPCClient client(grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
-                      grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials()));
-//    std::unique_ptr<std::string> buf = std::make_unique<std::string>(constants::BLOCK_SIZE, 'a');
-    std::string buf(2, 'a');
-    LOG_DEBUG_MSG(buf.size());
-    int bytes = client.write(0, buf.length(), buf.c_str());
-    LOG_DEBUG_MSG(bytes);
+    GRPCClient client(
+        grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
+        grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials()));
 
-    std::string bufRead = client.read(0);
-    std::cout << bufRead[0] << bufRead[1]<<"\n";
-//    bufRead.resize(2);
-    std::cout << buf << " "<< bufRead;
-    if (buf.compare(bufRead) != 0) {
+    // test 1
+    int data_size = constants::BLOCK_SIZE;
+    int address = 0;
+//    auto buf = std::make_unique<std::string>(data_size, 'a');
+    std::string buf(constants::BLOCK_SIZE, 'a');
+    LOG_DEBUG_MSG("Writing ", buf);
+    int bytes = client.p_write(address, data_size, buf.c_str());
+    LOG_DEBUG_MSG(bytes, " bytes written");
+
+    auto bufRead = client.p_read(address);
+    LOG_DEBUG_MSG("Reading", bufRead);
+
+    std::size_t hin = std::hash<std::string>{}(buf);
+    std::size_t hout = std::hash<std::string>{}(bufRead);
+    if (hin != hout) {
         LOG_DEBUG_MSG("not equal");
     } else {
         LOG_DEBUG_MSG("equal");

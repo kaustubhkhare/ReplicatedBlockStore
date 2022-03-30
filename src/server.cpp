@@ -2,7 +2,12 @@
 #include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include <grpcpp/grpcpp.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <memory>
 
 #include "constants.h"
 #include "helper.h"
@@ -53,7 +58,7 @@ public:
     }
 
     explicit gRPCServiceImpl(std::shared_ptr<Channel> channel,
-                             const std::string filename, bool primary = true) :
+            const std::string filename, bool primary = true) :
             stub_(gRPCService::NewStub(channel)){
         current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
         LOG_DEBUG_MSG("constructor called");
@@ -68,7 +73,7 @@ public:
         int size = lseek(fd, 0, SEEK_END);
         LOG_DEBUG_MSG("file size is ", size);
         lseek(fd, 0, SEEK_CUR);
-        backup_state = BackupState::ALIVE;
+        backup_state = BackupState::DEAD;
         current_server_state_ = ServerState::PRIMARY;
     }
 
@@ -76,11 +81,11 @@ public:
         ds::ReadResponse *readResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
-            char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->offset());
+            int buf_size = constants::BLOCK_SIZE;
+            auto buf = std::make_unique<std::string>(buf_size, '\0');
+            int bytes_read = pread(fd, buf->data(), buf_size, readRequest->offset());
             LOG_DEBUG_MSG(bytes_read, " bytes read");
-            readResponse->set_data(buf);
-            delete[] buf;
+//            readResponse->set_data(buf.release());
         }
         return Status::OK;
     }
@@ -96,6 +101,7 @@ public:
 //                }
 //            }
             BlockState state = BlockState::DISK;
+            LOG_DEBUG_MSG("Data at server" + writeRequest->data());
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int)writeRequest->offset()] = &info;
             if (backup_state == BackupState::ALIVE) {
@@ -105,8 +111,16 @@ public:
                 Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
                 LOG_DEBUG_MSG("back from backup");
             }
+
             LOG_DEBUG_MSG("write from map to file");
             int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->offset());
+
+//            LOG_DEBUG_MSG("Start debug");
+//            char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
+//            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, writeRequest->offset());
+//            LOG_DEBUG_MSG(buf, " bytes read");
+//            LOG_DEBUG_MSG("End debug");
+
             writeResponse->set_bytes_written(bytes);
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
@@ -116,7 +130,7 @@ public:
                 ds::AckResponse ackResponse;
 //                std::future<Status> f = std::async(std::launch::async,
 //                    stub_->s_commit, &context, commitRequest, &ackResponse);
-//                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
+                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
 //                pending_futures.push_back(std::move(f));
                 LOG_DEBUG_MSG("committed to backup");
             }
@@ -132,13 +146,13 @@ public:
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int) writeRequest->offset()] = &info;
         } else {
-            std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
+            LOG_DEBUG_MSG("calling s_write at backup?");
         }
         return Status::OK;
     }
 
     Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
-                    ds::AckResponse *ackResponse) {
+        ds::AckResponse *ackResponse) {
         LOG_DEBUG_MSG("calling commit on backup");
         BlockState diskState = BlockState::DISK;
         Info *info = temp_data[(int)commitRequest->offset()];
@@ -146,12 +160,13 @@ public:
         temp_data.erase((int)commitRequest->offset());
         return Status::OK;
     }
-};
 
-//gRPCServiceImpl::~gRPCServiceImpl() {
-//    LOG_MSG_DEBUG("Calling destructor\n");
-//    close(fd);
-//}
+    ~gRPCServiceImpl() {
+        LOG_DEBUG_MSG("Calling destructor");
+        close(fd);
+    }
+
+};
 
 int main(int argc, char *argv[]) {
     LOG_DEBUG_MSG("Starting primary");

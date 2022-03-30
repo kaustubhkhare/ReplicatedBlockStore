@@ -57,14 +57,15 @@ public:
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
                   ds::ReadResponse *readResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
-            std::cout << __LINE__ << "\n";
-            char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->offset());
+            LOG_DEBUG_MSG("reading from primary");
+            int buf_size = constants::BLOCK_SIZE;
+            auto buf = std::make_unique<std::string>(buf_size, '\0');
+            int bytes_read = pread(fd, buf->data(), buf_size, readRequest->offset());
             LOG_DEBUG_MSG(bytes_read, " bytes read");
-            readResponse->set_data(buf);
-            delete[] buf;
+//            readResponse->set_data(buf.release());
         } else {
             // process at backup
+            LOG_DEBUG_MSG("reading from backup");
         }
         return Status::OK;
     }
@@ -98,12 +99,13 @@ public:
 
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
+                ClientContext context;
                 ds::CommitRequest commitRequest;
                 commitRequest.set_offset(writeRequest->offset());
                 ds::AckResponse ackResponse;
 //                std::future<Status> f = std::async(std::launch::async,
 //                    stub_->s_commit, &context, commitRequest, &ackResponse);
-//                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
+                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
 //                pending_futures.push_back(std::move(f));
                 LOG_DEBUG_MSG("committed to backup");
             }
@@ -119,7 +121,7 @@ public:
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int) writeRequest->offset()] = &info;
         } else {
-            std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
+            LOG_DEBUG_MSG("calling s_write at backup?");
         }
         return Status::OK;
     }
@@ -133,12 +135,12 @@ public:
         temp_data.erase((int)commitRequest->offset());
         return Status::OK;
     }
-};
 
-//gRPCServiceImpl::~gRPCServiceImpl() {
-//    std::cout << __LINE__ << "Calling destructor\n";
-//    close(fd);
-//}
+    ~gRPCServiceImpl() {
+        LOG_DEBUG_MSG("Calling destructor");
+        close(fd);
+    }
+};
 
 int main(int argc, char *argv[]) {
     LOG_DEBUG_MSG("Starting backup");

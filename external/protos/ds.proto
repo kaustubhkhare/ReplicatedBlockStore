@@ -27,21 +27,6 @@ message CommitRequest {
 message AckResponse {
     bool done = 1;
 }
-message MessageInt {
-    int32 value = 1;
-}
-message MessageDouble {
-  double value = 1;
-}
-message MessageString {
-  string value = 1;
-}
-message MessageComplex {
-  int32 num1 = 1;
-  int64 num2 = 2;
-  double num3 = 3;
-  string string1 = 4;
-}
 
 service gRPCService {
   rpc c_read (ReadRequest) returns (ReadResponse) {}
@@ -49,12 +34,5 @@ service gRPCService {
   rpc s_read (ReadRequest) returns (ReadResponse) {}
   rpc s_write (WriteRequest) returns (AckResponse) {}
   rpc s_commit (CommitRequest) returns (AckResponse) {}
-  rpc SayHelloInt (MessageInt) returns (MessageInt) {}
-  rpc SayHelloDouble (MessageDouble) returns (MessageDouble) {}
-  rpc SayHelloString (MessageString) returns (MessageString) {}
-  rpc SayHelloComplex (MessageComplex) returns (MessageInt) {}
-  rpc SayServerStreamingString(MessageInt) returns (stream MessageString) {}
-  rpc SayClientStreamingString(stream MessageString) returns (MessageInt) {}
-  rpc SayBiStreamingInt(stream MessageInt) returns (stream MessageInt) {}
 }
 
