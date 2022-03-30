@@ -35,10 +35,11 @@ public:
     GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
     p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
 
-    std::string p_read(int address) {
+    std::string p_read(int address, int length) {
         LOG_DEBUG_MSG("Starting read");
         ds::ReadRequest readRequest;
         readRequest.set_address(address);
+        readRequest.set_data_length(length);
         ds::ReadResponse readResponse;
         ClientContext context;
         LOG_DEBUG_MSG("sending read to server");
@@ -47,8 +48,7 @@ public:
         return readResponse.data();
     }
 
-    int p_write(int address, int length, const char* wr_buffer){
-//    , std::unique_ptr<std::string> wr_buffer) {
+    int p_write(int address, int length, const char* wr_buffer) {
         LOG_DEBUG_MSG("Starting client write");
         ds::WriteRequest writeRequest;
         writeRequest.set_address(address);
@@ -85,10 +85,10 @@ private:
 int main(int argc, char *argv[]) {
     GRPCClient client(
         grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
-        grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials()));
+        grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()));
 
     // test 1
-    int data_size = constants::BLOCK_SIZE;
+    int data_size = 3;
     int address = 0;
 //    auto buf = std::make_unique<std::string>(data_size, 'a');
     std::string buf(data_size, 'a');
@@ -96,16 +96,16 @@ int main(int argc, char *argv[]) {
     int bytes = client.p_write(address, data_size, buf.c_str());
     LOG_DEBUG_MSG(bytes, " bytes written");
 
-    auto bufRead = client.p_read(address);
-    LOG_DEBUG_MSG("Reading", bufRead);
+    auto bufRead = client.p_read(address, data_size);
+    LOG_DEBUG_MSG("Reading ", bufRead);
 
     // IMP TODO : check hash of full block not just the part written or read till data size
-    std::size_t hin = std::hash<std::string>{}(buf);
-    std::size_t hout = std::hash<std::string>{}(bufRead);
-    if (hin != hout) {
-        LOG_DEBUG_MSG("not equal");
-    } else {
-        LOG_DEBUG_MSG("equal");
-    }
+//    std::size_t hin = std::hash<std::string>{}(*buf);
+//    std::size_t hout = std::hash<std::string>{}(*bufRead);
+//    if (hin != hout) {
+//        LOG_DEBUG_MSG("not equal");
+//    } else {
+//        LOG_DEBUG_MSG("equal");
+//    }
     return 0;
 }

@@ -3,7 +3,8 @@ syntax = "proto3";
 package ds;
 
 message ReadRequest {
-    int64 address = 1;
+    int32 address = 1;
+    int32 data_length = 2;
 }
 
 message ReadResponse {

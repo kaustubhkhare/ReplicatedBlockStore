@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <memory>
+#include <deque>
+#include <future>
 
 #include "constants.h"
 #include "helper.h"
@@ -37,7 +39,8 @@ private:
     std::atomic<ServerState> current_server_state_;
     std::unique_ptr <gRPCService::Stub> stub_;
     std::unordered_map<int, Info*> temp_data;
-//    std::vector<std::future<Status>> pending_futures;
+    using fut_t = std::future<std::optional<int>>;
+    std::deque<fut_t> pending_futures;
 
 public:
     auto get_server_state() const {
@@ -81,11 +84,11 @@ public:
         ds::ReadResponse *readResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
-            int buf_size = constants::BLOCK_SIZE;
-            auto buf = std::make_unique<std::string>(buf_size, '\0');
-            int bytes_read = pread(fd, buf->data(), buf_size, readRequest->address());
-            LOG_DEBUG_MSG(bytes_read, " bytes read");
-//            readResponse->set_data(buf.release());
+            int buf_size = readRequest->data_length();
+            auto buf = std::make_unique<char[]>(buf_size);
+            int bytes_read = pread(fd, buf.get(), buf_size, readRequest->address());
+            LOG_DEBUG_MSG(buf.get(), " bytes read");
+            readResponse->set_data(buf.get());
         }
         return Status::OK;
     }
@@ -94,15 +97,18 @@ public:
                    ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
-//            for (int i = 0; i < pending_futures.size(); i++) {
-//                if (pending_futures[i].valid()) {
-//                        int address = pending_futures[i].get();
-//                        temp_data.erase(address);
-//                }
-//            }
+            while (pending_futures.size()) {
+                auto& pf = pending_futures.front();
+                if (pf.valid()) {
+                    const auto addr = pf.get();
+                    pending_futures.pop_front();
+                }
+            }
+
             BlockState state = BlockState::DISK;
             LOG_DEBUG_MSG("Data at server" + writeRequest->data());
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
+            // TODO: make map thread safe
             temp_data[(int)writeRequest->address()] = &info;
             if (backup_state == BackupState::ALIVE) {
                 ClientContext context;
@@ -113,13 +119,14 @@ public:
             }
 
             LOG_DEBUG_MSG("write from map to file");
-            int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->address());
+            int bytes = pwrite(fd, writeRequest->data().c_str(), writeRequest->data_length(), writeRequest->address());
 
-//            LOG_DEBUG_MSG("Start debug");
-//            char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-//            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, writeRequest->address());
-//            LOG_DEBUG_MSG(buf, " bytes read");
-//            LOG_DEBUG_MSG("End debug");
+            LOG_DEBUG_MSG("Start debug");
+            int buf_size = writeRequest->data_length();
+            auto buf = std::make_unique<char[]>(buf_size);
+            int bytes_read = pread(fd, buf.get(), buf_size, writeRequest->address());
+            LOG_DEBUG_MSG(buf.get(), " bytes read");
+            LOG_DEBUG_MSG("End debug");
 
             writeResponse->set_bytes_written(bytes);
             if (backup_state == BackupState::ALIVE) {
@@ -127,11 +134,19 @@ public:
                 ClientContext context;
                 ds::CommitRequest commitRequest;
                 commitRequest.set_address(writeRequest->address());
-                ds::AckResponse ackResponse;
-//                std::future<Status> f = std::async(std::launch::async,
-//                    stub_->s_commit, &context, commitRequest, &ackResponse);
-                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
-//                pending_futures.push_back(std::move(f));
+                const int waddr = writeRequest->address();
+
+                fut_t f = std::async(std::launch::async,
+                    [&]() -> std::optional<int> {
+                        ClientContext context;
+                        ds::CommitRequest commitRequest;
+                        commitRequest.set_address(waddr);
+                        ds::AckResponse ackResponse;
+                        if ((stub_->s_commit(&context, commitRequest, &ackResponse)).ok())
+                            return waddr;
+                        return std::nullopt;
+                });
+                pending_futures.push_back(std::move(f));
                 LOG_DEBUG_MSG("committed to backup");
             }
             return Status::OK;
@@ -170,6 +185,7 @@ public:
 
 int main(int argc, char *argv[]) {
     LOG_DEBUG_MSG("Starting primary");
+
     std::string server_address("0.0.0.0:50052");
     gRPCServiceImpl service(grpc::CreateChannel("localhost:50053",
         grpc::InsecureChannelCredentials()), argv[1]);
