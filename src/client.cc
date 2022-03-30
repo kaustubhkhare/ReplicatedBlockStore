@@ -49,20 +49,13 @@ public:
     GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
     p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
 
-<<<<<<< HEAD
     std::string p_read(int address, int length) {
         LOG_DEBUG_MSG("Starting read");
         ds::ReadRequest readRequest;
         readRequest.set_address(address);
         readRequest.set_data_length(length);
-=======
-    std::string read(int address) {
-        LOG_DEBUG_MSG("Starting read");
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
         ds::ReadResponse readResponse;
         ClientContext context;
-        ds::ReadRequest readRequest;
-        readRequest.set_address(address);
 
         LOG_DEBUG_MSG("Sending read to server");
         Status status = p_stub_->c_read(&context, readRequest, &readResponse);
@@ -75,11 +68,8 @@ public:
         return readResponse.data();
     }
 
-<<<<<<< HEAD
-    int p_write(int address, int length, const char* wr_buffer) {
-=======
+
     int write(int address, int length, const char* wr_buffer) {
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
         LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
@@ -104,7 +94,6 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-<<<<<<< HEAD
     GRPCClient client(
         grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
         grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()));
@@ -115,7 +104,7 @@ int main(int argc, char *argv[]) {
 //    auto buf = std::make_unique<std::string>(data_size, 'a');
     std::string buf(data_size, 'a');
     LOG_DEBUG_MSG("Writing ", buf);
-    int bytes = client.p_write(address, data_size, buf.c_str());
+    int bytes = client.write(address, data_size, buf.c_str());
     LOG_DEBUG_MSG(bytes, " bytes written");
 
     auto bufRead = client.p_read(address, data_size);
@@ -129,22 +118,5 @@ int main(int argc, char *argv[]) {
 //    } else {
 //        LOG_DEBUG_MSG("equal");
 //    }
-=======
-    GRPCClient client(grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
-                      grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials()));
-    std::string buf(10, 'b');
-    LOG_DEBUG_MSG(buf.size());
-    int bytes = client.write(4000, buf.length(), buf.c_str());
-    LOG_DEBUG_MSG(bytes);
-
-    std::string bufRead = client.read(0);
-//    std::cout << bufRead[0] << bufRead[1]<<"\n";
-    std::cout << buf << " "<< bufRead;
-    if (buf.compare(bufRead) != 0) {
-        LOG_DEBUG_MSG("not equal");
-    } else {
-        LOG_DEBUG_MSG("equal");
-    }
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
     return 0;
 }

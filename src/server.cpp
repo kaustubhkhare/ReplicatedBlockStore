@@ -114,19 +114,11 @@ public:
         ds::ReadResponse *readResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
-<<<<<<< HEAD
             int buf_size = readRequest->data_length();
             auto buf = std::make_unique<char[]>(buf_size);
-            int bytes_read = pread(fd, buf.get(), buf_size, readRequest->address());
+            int bytes_read = read(buf.get(), readRequest->address(), buf_size);
             LOG_DEBUG_MSG(buf.get(), " bytes read");
             readResponse->set_data(buf.get());
-=======
-            char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int flag = read(buf, readRequest->address(), constants::BLOCK_SIZE);
-            if (flag == -1)
-                return Status::CANCELLED;
-            readResponse->set_data(buf);
-            delete[] buf;
         }
         return Status::OK;
     }
@@ -136,7 +128,6 @@ public:
             LOG_DEBUG_MSG("I'm primary");
         } else {
             LOG_DEBUG_MSG("I'm secondary");
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
         }
 
         return Status::OK;
@@ -146,7 +137,6 @@ public:
                    ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
-<<<<<<< HEAD
             while (pending_futures.size()) {
                 auto& pf = pending_futures.front();
                 if (pf.valid()) {
@@ -155,8 +145,6 @@ public:
                 }
             }
 
-=======
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
             BlockState state = BlockState::DISK;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             // TODO: make map thread safe
@@ -169,29 +157,18 @@ public:
                 LOG_DEBUG_MSG("back from backup");
             }
             LOG_DEBUG_MSG("write from map to file");
-<<<<<<< HEAD
-            int bytes = pwrite(fd, writeRequest->data().c_str(), writeRequest->data_length(), writeRequest->address());
 
-            LOG_DEBUG_MSG("Start debug");
-            int buf_size = writeRequest->data_length();
-            auto buf = std::make_unique<char[]>(buf_size);
-            int bytes_read = pread(fd, buf.get(), buf_size, writeRequest->address());
-            LOG_DEBUG_MSG(buf.get(), " bytes read");
-            LOG_DEBUG_MSG("End debug");
-
-            writeResponse->set_bytes_written(bytes);
-=======
             int flag = write(writeRequest->data().c_str(), writeRequest->address(), writeRequest->data_length());
             if (flag == -1)
                 return Status::CANCELLED;
             writeResponse->set_bytes_written(writeRequest->data_length());
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
+
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
                 ClientContext context;
                 ds::CommitRequest commitRequest;
                 commitRequest.set_address(writeRequest->address());
-<<<<<<< HEAD
+
                 const int waddr = writeRequest->address();
 
                 fut_t f = std::async(std::launch::async,
@@ -205,9 +182,6 @@ public:
                         return std::nullopt;
                 });
                 pending_futures.push_back(std::move(f));
-=======
-                ds::AckResponse ackResponse;
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
                 LOG_DEBUG_MSG("committed to backup");
             }
             return Status::OK;
@@ -262,12 +236,7 @@ int main(int argc, char *argv[]) {
     }
 
     LOG_DEBUG_MSG("Starting primary");
-<<<<<<< HEAD
-
-    std::string server_address("0.0.0.0:50052");
-=======
     std::string server_address(ip + ":" + port);
->>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
     gRPCServiceImpl service(grpc::CreateChannel("localhost:50053",
         grpc::InsecureChannelCredentials()), datafile);
     ServerBuilder builder;
