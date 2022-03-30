@@ -3,6 +3,7 @@
 #include <grpcpp/grpcpp.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <threads>
 
 #include "constants.h"
 
@@ -34,8 +35,44 @@ public:
         lseek(fd, 0, SEEK_CUR);
     }
 
+    // Returns the block indices for the offset and data_length. In this case return vector size is at most 2
+    std::vector<int> get_blocks_involved(const int offset, const int data_length) {
+        int first_block = offset / BLOCK_SIZE;
+        int end_of_first_block = first_block + BLOCK_SIZE - 1,
+                first_block_size_left = end_of_first_block - first_block * BLOCK_SIZE;
+        std::vector blocks_involved;
+        blocks_involved.push_back(first_block);
+        if (data_length > first_block_size_left) {
+            blocks_involved.push_back(first_block + 1);
+        }
+        return blocks_involved;
+    }
+
+    // only called by back up server,
+    // virtual locks (not c++ mutex) -> lock for block 'x' is acquired if 'x' exists in temp_data with LOCK state
+    void wait_before_read(const ds::ReadRequest *readRequest) {
+        // todo: add a check if this is a backup. Primaries don't need to wait for reads
+        std::vector<int> blocks = get_blocks_involved(readRequest->offset, BLOCK_SIZE);
+        // change this to get signaled when the entry is removed from the map (write to that block is complete)
+
+        boolean can_read_all = false;
+        while(can_read_all) {
+            can_read_all = true;
+            for (const int &b: blocks) {
+                if (temp_data[b] != null && temp_data[b]->state == BlockState::LOCKED) {
+                    can_read_all = false;
+                    break;
+                }
+            }
+            if (!can_read_all) {
+                std::this_thread.sleep_for(std::chrono::nanoseconds(1));
+            }
+        }
+    }
+
     Status s_read(ServerContext *context, const ds::ReadRequest *readRequest,
                   ds::ReadResponse *readResponse) {
+        wait_before_read();
         std::cout << __LINE__ << "\n";
         char* buf = (char*) calloc(constants::BLOCK_SIZE, sizeof(char));
         lseek(fd, readRequest->offset(), SEEK_SET);

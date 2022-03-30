@@ -24,6 +24,7 @@ private:
 //    std::unique_ptr<gRPCService::Stub> stub_;
     enum class ServerState: int32_t { PRIMARY = 0, BACKUP };
     std::atomic<ServerState> current_server_state_;
+    std::vector<std::mutex> per_block_locks;
 public:
     auto get_server_state() const {
         return current_server_state_.load(std::memory_order_relaxed);
@@ -44,7 +45,8 @@ public:
 
     explicit gRPCServiceImpl(const std::string filename,
                              bool primary = true) {
-        current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
+        per_block_locks.resize(TOTAL_BLOCKS);
+        current_server_state_ = (primary) ? ServerState::PRIMARY : ServerState::BACKUP;
         LOG_DEBUG_MSG("constructor called");
         fd = open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
         if (fd < 0) {
@@ -57,6 +59,52 @@ public:
         int size = lseek(fd, 0, SEEK_END);
         LOG_DEBUG_MSG("file size is ", size);
         lseek(fd, 0, SEEK_CUR);
+    }
+
+    // Returns the block indices for the offset and data_length. In this case return vector size is at most 2
+    std::vector<int> get_blocks_involved(const int offset, const int data_length) {
+        int first_block = offset / BLOCK_SIZE;
+        int end_of_first_block = first_block + BLOCK_SIZE - 1,
+            first_block_size_left = end_of_first_block - first_block * BLOCK_SIZE;
+        std::vector blocks_involved;
+        blocks_involved.push_back(first_block);
+        if (data_length > first_block_size_left) {
+            blocks_involved.push_back(first_block + 1);
+        }
+        return blocks_involved;
+    }
+
+    void get_write_locks(const ds::WriteRequest *writeRequest) {
+        vector<int> blocks = get_blocks_involved(writeRequest->offset, writeRequest->data_length);
+        if (blocks.size() == 1) {
+            per_block_locks[blocks[0]].lock();
+        } else {
+            // max size can only be 2, same thing can be generalized to n, no need in this case.
+            std::mutex first_block_lock = per_block_locks[blocks[0]],
+                        second_block_lock = per_block_locks[blocks[1]];
+
+            while(first_block_lock_acquired && second_block_lock_acquired) {
+                // try acquiring the locks
+                first_block_lock_acquired = !first_block_lock_acquired && first_block_lock.try_lock();
+                second_block_lock_acquired = !first_block_lock_acquired && second_block_lock.try_lock();
+                // if both obtained, will get out of loop, if not both obtained, release obtained locks
+                if (!first_block_lock_acquired || !second_block_lock_acquired) {
+                    if (first_block_lock_acquired) {
+                        first_block_lock.release();
+                    }
+                    if (second_block_lock_acquired) {
+                        second_block_lock.release();
+                    }
+                }
+            }
+        }
+    }
+
+    void release_write_locks(const ds::WriteRequest *writeRequest) {
+        vector<int> blocks = get_blocks_involved(writeRequest->offset, writeRequest->data_length);
+        for (const int &block: blocks) {
+            per_block_locks[block].release();
+        }
     }
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
@@ -75,6 +123,7 @@ public:
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::WriteResponse *writeResponse) {
         LOG_DEBUG_MSG("Starting server write");
+        get_write_locks(writeRequest->offset);
 //        temp_data[writeRequest->offset()] = writeRequest->data();
         // send to backup
 //        Status status = stub_->s_write(&context, writeRequest, &ackResponse);
@@ -86,6 +135,8 @@ public:
 //        &writeRequest->data_length()
         writeResponse->set_bytes_written(bytes);
         // send commit msg to backup
+        // release the locks only before returning to client
+        release_write_locks(writeRequest);
         return Status::OK;
     }
 };
