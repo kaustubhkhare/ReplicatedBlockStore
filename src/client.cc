@@ -72,8 +72,8 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    GRPCClient client(grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials()),
-                      grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials()));
+    GRPCClient client(grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
+                      grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials()));
 //    std::unique_ptr<std::string> buf = std::make_unique<std::string>(constants::BLOCK_SIZE, 'a');
     std::string buf(2, 'a');
     LOG_DEBUG_MSG(buf.size());
@@ -84,10 +84,10 @@ int main(int argc, char *argv[]) {
     std::cout << bufRead[0] << bufRead[1]<<"\n";
 //    bufRead.resize(2);
     std::cout << buf << " "<< bufRead;
-//    if (buf.compare(bufRead) != 0) {
-//        LOG_DEBUG_MSG("not equal");
-//    } else {
-//        LOG_DEBUG_MSG("equal");
-//    }
+    if (buf.compare(bufRead) != 0) {
+        LOG_DEBUG_MSG("not equal");
+    } else {
+        LOG_DEBUG_MSG("equal");
+    }
     return 0;
 }

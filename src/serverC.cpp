@@ -4,8 +4,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <future>
-
 #include "helper.h"
+
 #include "constants.h"
 
 using ds::gRPCService;
@@ -34,7 +34,6 @@ private:
     std::unique_ptr <gRPCService::Stub> stub_;
     std::unordered_map<int, Info*> temp_data;
     std::vector<std::future<Status>> pending_futures;
-
 public:
     explicit gRPCServiceImpl(std::shared_ptr<Channel> channel, const std::string filename) :
             stub_(gRPCService::NewStub(channel)){
@@ -51,11 +50,11 @@ public:
         LOG_DEBUG_MSG("file size is ", size);
         lseek(fd, 0, SEEK_CUR);
         backup_state = BackupState::ALIVE;
-        current_server_state_ = ServerState::BACKUP;
+        current_server_state_ = ServerState::PRIMARY;
     }
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
-                  ds::ReadResponse *readResponse) {
+        ds::ReadResponse *readResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             std::cout << __LINE__ << "\n";
             char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
@@ -63,41 +62,43 @@ public:
             LOG_DEBUG_MSG(bytes_read, " bytes read");
             readResponse->set_data(buf);
             delete[] buf;
-        } else {
-            // process at backup
         }
         return Status::OK;
     }
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
-                   ds::WriteResponse *writeResponse) {
+        ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("writing to primary");
 //            for (int i = 0; i < pending_futures.size(); i++) {
 //                if (pending_futures[i].valid()) {
-//                        int address = pending_futures[i].get();
-//                        temp_data.erase(address);
+////                        int address =
+//                            pending_futures[i].get();
+////                        temp_data.erase(address);
 //                }
 //            }
             LOG_DEBUG_MSG("Starting primary server write");
             BlockState state = BlockState::DISK;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int)writeRequest->offset()] = &info;
-
             if (backup_state == BackupState::ALIVE) {
+                // send to backup
                 ClientContext context;
                 ds::AckResponse ackResponse;
                 LOG_DEBUG_MSG("sending read to backup");
                 Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
                 LOG_DEBUG_MSG("back from backup");
+                if (!status.ok()) {
+                    // do something
+                }
             }
-
+            // receive ack
             LOG_DEBUG_MSG("write from map to file");
             int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->offset());
             writeResponse->set_bytes_written(bytes);
-
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
+                ClientContext context;
                 ds::CommitRequest commitRequest;
                 commitRequest.set_offset(writeRequest->offset());
                 ds::AckResponse ackResponse;
@@ -111,10 +112,11 @@ public:
         }
         LOG_DEBUG_MSG("Starting backup server write");
     }
+
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
-                   ds::AckResponse *ackResponse) {
+        ds::AckResponse *ackResponse) {
         if (current_server_state_ == ServerState::BACKUP) {
-            LOG_DEBUG_MSG("Starting backup server write");
+            std::cerr << __LINE__ << "Starting backup server write\n" << std::flush;
             BlockState state = BlockState::LOCKED;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int) writeRequest->offset()] = &info;
@@ -126,11 +128,13 @@ public:
 
     Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
         ds::AckResponse *ackResponse) {
-        LOG_DEBUG_MSG("calling commit on backup");
+        std::cerr << "calling commit on backup\n";
         BlockState diskState = BlockState::DISK;
         Info *info = temp_data[(int)commitRequest->offset()];
         int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->offset());
+//        info->state = diskState;
         temp_data.erase((int)commitRequest->offset());
+        // send commit msg to backup
         return Status::OK;
     }
 };
@@ -141,10 +145,11 @@ public:
 //}
 
 int main(int argc, char *argv[]) {
-    LOG_DEBUG_MSG("Starting backup");
-    std::string server_address("0.0.0.0:50053");
-    gRPCServiceImpl service(grpc::CreateChannel("localhost:50052",
-        grpc::InsecureChannelCredentials()), argv[1]);
+    std::cerr << __LINE__ << "Starting primary\n";
+    std::cerr.flush();
+    std::string server_address("0.0.0.0:50052");
+    gRPCServiceImpl service(grpc::CreateChannel("localhost:50053",
+                                                grpc::InsecureChannelCredentials()), argv[1]);
     ServerBuilder builder;
     // Listen on the given address without any authentication mechanism.
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());

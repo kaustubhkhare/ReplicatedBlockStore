@@ -19,11 +19,21 @@ using grpc::ClientContext;
 
 class gRPCServiceImpl final : public gRPCService::Service {
 private:
+    enum class BlockState{ DISK, LOCKED};
+    typedef struct {
+        BlockState state;
+        int length;
+        std::string data;
+    } Info;
     int fd;
-    std::unordered_map<int, std::string> temp_data;
-//    std::unique_ptr<gRPCService::Stub> stub_;
+    enum class BackupState {ALIVE, DEAD};
+    std::atomic<BackupState> backup_state;
     enum class ServerState: int32_t { PRIMARY = 0, BACKUP };
     std::atomic<ServerState> current_server_state_;
+    std::unique_ptr <gRPCService::Stub> stub_;
+    std::unordered_map<int, Info*> temp_data;
+//    std::vector<std::future<Status>> pending_futures;
+
 public:
     auto get_server_state() const {
         return current_server_state_.load(std::memory_order_relaxed);
@@ -42,8 +52,9 @@ public:
         LOG_INFO_MSG(" -> BACKUP");
     }
 
-    explicit gRPCServiceImpl(const std::string filename,
-                             bool primary = true) {
+    explicit gRPCServiceImpl(std::shared_ptr<Channel> channel,
+                             const std::string filename, bool primary = true) :
+            stub_(gRPCService::NewStub(channel)){
         current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
         LOG_DEBUG_MSG("constructor called");
         fd = open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
@@ -57,35 +68,82 @@ public:
         int size = lseek(fd, 0, SEEK_END);
         LOG_DEBUG_MSG("file size is ", size);
         lseek(fd, 0, SEEK_CUR);
+        backup_state = BackupState::ALIVE;
+        current_server_state_ = ServerState::PRIMARY;
     }
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
-//        LOG_DEBUG_MSG("Read called on ", current_server_state_);
-//        char* buf = (char*) calloc(constants::BLOCK_SIZE, sizeof(char));
-        auto buf = std::make_unique<std::string>(constants::BLOCK_SIZE, '\0');
-        lseek(fd, readRequest->offset(), SEEK_SET);
-        int bytes_read = read(fd, buf->data(), constants::BLOCK_SIZE);
-        LOG_DEBUG_MSG("bytes read", bytes_read);
-        readResponse->set_data(buf->data());
-//        delete[] buf;
+        if (current_server_state_ == ServerState::PRIMARY) {
+            LOG_DEBUG_MSG("reading from primary");
+            char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
+            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->offset());
+            LOG_DEBUG_MSG(bytes_read, " bytes read");
+            readResponse->set_data(buf);
+            delete[] buf;
+        }
         return Status::OK;
     }
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
-        ds::WriteResponse *writeResponse) {
-        LOG_DEBUG_MSG("Starting server write");
-//        temp_data[writeRequest->offset()] = writeRequest->data();
-        // send to backup
-//        Status status = stub_->s_write(&context, writeRequest, &ackResponse);
-        // receive ack
-        lseek(fd, writeRequest->offset(), SEEK_SET);
-        std::cerr << writeRequest->data().length();
-        int bytes = write(fd, &writeRequest->data(), writeRequest->data_length());
-        std::cerr << bytes << "\n";
-//        &writeRequest->data_length()
-        writeResponse->set_bytes_written(bytes);
-        // send commit msg to backup
+                   ds::WriteResponse *writeResponse) {
+        if (current_server_state_ == ServerState::PRIMARY) {
+            LOG_DEBUG_MSG("Starting primary server write");
+//            for (int i = 0; i < pending_futures.size(); i++) {
+//                if (pending_futures[i].valid()) {
+//                        int address = pending_futures[i].get();
+//                        temp_data.erase(address);
+//                }
+//            }
+            BlockState state = BlockState::DISK;
+            Info info = {state, writeRequest->data_length(), writeRequest->data()};
+            temp_data[(int)writeRequest->offset()] = &info;
+            if (backup_state == BackupState::ALIVE) {
+                ClientContext context;
+                ds::AckResponse ackResponse;
+                LOG_DEBUG_MSG("sending read to backup");
+                Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
+                LOG_DEBUG_MSG("back from backup");
+            }
+            LOG_DEBUG_MSG("write from map to file");
+            int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->offset());
+            writeResponse->set_bytes_written(bytes);
+            if (backup_state == BackupState::ALIVE) {
+                LOG_DEBUG_MSG("commit to backup");
+                ClientContext context;
+                ds::CommitRequest commitRequest;
+                commitRequest.set_offset(writeRequest->offset());
+                ds::AckResponse ackResponse;
+//                std::future<Status> f = std::async(std::launch::async,
+//                    stub_->s_commit, &context, commitRequest, &ackResponse);
+//                Status status = stub_->s_commit(&context, commitRequest, &ackResponse);
+//                pending_futures.push_back(std::move(f));
+                LOG_DEBUG_MSG("committed to backup");
+            }
+            return Status::OK;
+        }
+        LOG_DEBUG_MSG("Starting backup server write");
+    }
+    Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
+        ds::AckResponse *ackResponse) {
+        if (current_server_state_ == ServerState::BACKUP) {
+            LOG_DEBUG_MSG("Starting backup server write");
+            BlockState state = BlockState::LOCKED;
+            Info info = {state, writeRequest->data_length(), writeRequest->data()};
+            temp_data[(int) writeRequest->offset()] = &info;
+        } else {
+            std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
+        }
+        return Status::OK;
+    }
+
+    Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
+                    ds::AckResponse *ackResponse) {
+        LOG_DEBUG_MSG("calling commit on backup");
+        BlockState diskState = BlockState::DISK;
+        Info *info = temp_data[(int)commitRequest->offset()];
+        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->offset());
+        temp_data.erase((int)commitRequest->offset());
         return Status::OK;
     }
 };
@@ -96,22 +154,23 @@ public:
 //}
 
 int main(int argc, char *argv[]) {
-    std::cerr << "here\n";
-    std::string server_address("0.0.0.0:50051");
-    gRPCServiceImpl service(argv[1]);
+    LOG_DEBUG_MSG("Starting primary");
+    std::string server_address("0.0.0.0:50052");
+    gRPCServiceImpl service(grpc::CreateChannel("localhost:50053",
+        grpc::InsecureChannelCredentials()), argv[1]);
     ServerBuilder builder;
     // Listen on the given address without any authentication mechanism.
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.SetMaxSendMessageSize(INT_MAX);
     builder.SetMaxReceiveMessageSize(INT_MAX);
     builder.SetMaxMessageSize(INT_MAX);
-    std::cerr << "here\n";
+
     // Register "service" as the instance through which we'll communicate with
     // clients. In this case it corresponds to an *synchronous* service.
     builder.RegisterService(&service);
     // Finally assemble the server.
     std::unique_ptr<Server> server(builder.BuildAndStart());
-//    LOG_INFO_MSG("Server listening on ", server_address);
+    std::cout << "Server listening on " << server_address << std::endl;
 
     // Wait for the server to shutdown. Note that some other thread must be
     // responsible for shutting down the server for this call to ever return.
