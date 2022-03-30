@@ -42,6 +42,13 @@ message MessageComplex {
   double num3 = 3;
   string string1 = 4;
 }
+message ReintegrationResponse {
+    repeated int32 offsets;
+    repeated string data;
+    repeated int32 data_lengths;
+}
+message ReintegrationRequest {
+}
 
 service gRPCService {
   rpc c_read (ReadRequest) returns (ReadResponse) {}
@@ -49,6 +56,9 @@ service gRPCService {
   rpc s_read (ReadRequest) returns (ReadResponse) {}
   rpc s_write (WriteRequest) returns (AckResponse) {}
   rpc s_commit (CommitRequest) returns (AckResponse) {}
+  rpc p_reintegrate (ReintegrationRequest) returns (ReintegrationResponse) {}
+  rpc p_reintegrate_phase_two (ReintegrationRequest) returns (ReintegrationResponse) {}
+  rpc p_reintegration_complete (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc SayHelloInt (MessageInt) returns (MessageInt) {}
   rpc SayHelloDouble (MessageDouble) returns (MessageDouble) {}
   rpc SayHelloString (MessageString) returns (MessageString) {}
