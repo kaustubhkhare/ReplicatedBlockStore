@@ -23,7 +23,6 @@ template <class... T>
 inline void log_server(const T&... args) {
     if constexpr (!DISABLE_CERR_ERRORS) {
         (std::cerr << ... << args) << '\n';
-        std::cerr.flush();
     }
 }
 
