@@ -103,30 +103,37 @@ public:
 
     explicit gRPCServiceImpl(std::shared_ptr<Channel> channel,
                              const std::string filename, bool primary = true) :
-            stub_(gRPCService::NewStub(channel)){
-        per_block_locks.resize(TOTAL_BLOCKS);
-        current_server_state_ = (primary) ? ServerState::PRIMARY : ServerState::BACKUP;
+            stub_(gRPCService::NewStub(channel)) {
+        per_block_locks.resize(constants::TOTAL_BLOCKS);
+        current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
         this->filename = filename;
         create_file(filename);
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
-
+        backup_state = BackupState::ALIVE;
+        current_server_state_ = primary ? ServerState::PRIMARY : ServerState::BACKUP;
         if (!primary) {
             secondary_reintegration();
         }
         LOG_DEBUG_MSG("constructor called");
-        fd = open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
-        if (fd < 0) {
-	        LOG_ERR_MSG("server_init: Cannot open file: " + filename);
+    }
+
+    void wait_before_read(const ds::ReadRequest* readRequest) {
+        ASS(current_server_state_ == ServerState::PRIMARY, "waiting for reads in primary shouldn't happen");
+        std::vector<int> blocks = get_blocks_involved(readRequest->offset, BLOCK_SIZE);
+        // change this to get signaled when the entry is removed from the map (write to that block is complete)
+        boolean can_read_all = false;
+        while(can_read_all) {
+            can_read_all = true;
+            for (const int &b: blocks) {
+                if (temp_data[b] != null && temp_data[b]->state == BlockState::LOCKED) {
+                    can_read_all = false;
+                    break;
+                }
+            }
+            if (!can_read_all) {
+                std::this_thread.sleep_for(std::chrono::nanoseconds(1));
+            }
         }
-        int ret = ftruncate(fd, constants::FILE_SIZE);
-        if (ret < 0) {
-            LOG_ERR_MSG("server_init: Cannot increase file size\n");
-        }
-        int size = lseek(fd, 0, SEEK_END);
-        LOG_DEBUG_MSG("file size is ", size);
-        lseek(fd, 0, SEEK_CUR);
-        backup_state = BackupState::ALIVE;
-        current_server_state_ = ServerState::PRIMARY;
     }
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
@@ -139,7 +146,7 @@ public:
             readResponse->set_data(buf);
             delete[] buf;
         } else {
-            wait_before_read();
+            wait_before_read(readRequest);
             LOG_DEBUG_MSG("reading from backup");
             char* buf = (char*) calloc(constants::BLOCK_SIZE, sizeof(char));
             int flag = read(buf, readRequest->address(), constants::BLOCK_SIZE);
@@ -253,8 +260,8 @@ public:
         return Status::OK;
     }
 
-    Status p_reintegration_complete(ServerContext *context, const ds::reintegrationRequest* reintegrationRequest,
-                                    ds::reintegrationResponse* reintegrationResponse) {
+    Status p_reintegration_complete(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
+                                    ds::ReintegrationResponse* reintegrationResponse) {
         this->backup_state = BackupState::ALIVE;
         reintegration_lock.unlock();
         return Status::OK;
