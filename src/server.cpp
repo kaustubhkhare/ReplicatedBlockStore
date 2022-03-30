@@ -134,7 +134,7 @@ public:
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
             char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->address());
+            int bytes_read = read(buf, readRequest->address(), constants::BLOCK_SIZE);
             LOG_DEBUG_MSG(bytes_read, " bytes read");
             readResponse->set_data(buf);
             delete[] buf;
@@ -175,7 +175,7 @@ public:
 
     void get_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
         reintegration_lock.lock();
-        vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
         if (blocks.size() == 1) {
             per_block_locks[blocks[0]].lock();
         } else {
@@ -201,7 +201,7 @@ public:
     }
 
     void release_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
-        vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
         for (const int &block: blocks) {
             per_block_locks[block].release();
         }
@@ -268,8 +268,9 @@ public:
 
         // write all missing writes in the backup
         for (int i = 0; i < reintegration_response.data_size(); i++) {
-            pwrite(fd, &reintegration_response->data(i), reintegration_response->data_length(i),
-                   reintegration_response->addresses(i));
+            write(&reintegration_response->data(i),
+                   reintegration_response->addresses(i),
+                  reintegration_response->data_length(i));
         }
 
         // get memory based writes
@@ -279,8 +280,9 @@ public:
         status = stub_->p_reintegration_phase_two(context, reintegration_request, reintegration_response);
 
         for (int i = 0; i < reintegration_response.data_size(); i++) {
-            pwrite(fd, &reintegration_response->data(i), reintegration_response->data_length(i),
-                   reintegration_response->addresses(i));
+            write(&reintegration_response->data(i),
+                    reintegration_response->addresses(i),
+                    reintegration_response->data_length(i));
         }
 
         // notify primary that reintegration is complete
@@ -295,7 +297,7 @@ public:
                    ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
-            get_write_locks(writeRequest->offset);
+            get_write_locks(writeRequest->address);
 //            for (int i = 0; i < pending_futures.size(); i++) {
 //                if (pending_futures[i].valid()) {
 //                        int address = pending_futures[i].get();
@@ -354,7 +356,6 @@ public:
         BlockState diskState = BlockState::DISK;
         Info *info = temp_data[(int)commitRequest->address()];
         write(info->data.c_str(), commitRequest->address(), info->length);
-//        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->address());
         temp_data.erase((int)commitRequest->address());
         return Status::OK;
     }
