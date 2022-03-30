@@ -49,12 +49,12 @@ public:
     GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
     p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
 
-    std::string read(int offset) {
+    std::string read(int address) {
         LOG_DEBUG_MSG("Starting read");
         ds::ReadResponse readResponse;
         ClientContext context;
         ds::ReadRequest readRequest;
-        readRequest.set_offset(offset);
+        readRequest.set_address(address);
 
         LOG_DEBUG_MSG("Sending read to server");
         Status status = p_stub_->c_read(&context, readRequest, &readResponse);
@@ -67,12 +67,12 @@ public:
         return readResponse.data();
     }
 
-    int write(int offset, int length, const char* wr_buffer) {
+    int write(int address, int length, const char* wr_buffer) {
         LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
         ds::WriteRequest writeRequest;
-        writeRequest.set_offset(offset);
+        writeRequest.set_address(address);
         writeRequest.set_data_length(length);
         writeRequest.set_data(wr_buffer);
 

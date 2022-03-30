@@ -28,11 +28,20 @@ message AckResponse {
     bool done = 1;
 }
 
+message HBRequest {
+  bool is_primary = 1;
+}
+
+message HBResponse {
+  int32 status = 1;
+}
+
 service gRPCService {
   rpc c_read (ReadRequest) returns (ReadResponse) {}
   rpc c_write (WriteRequest) returns (WriteResponse) {}
   rpc s_read (ReadRequest) returns (ReadResponse) {}
   rpc s_write (WriteRequest) returns (AckResponse) {}
   rpc s_commit (CommitRequest) returns (AckResponse) {}
+  rpc hb_check(HBRequest) returns (HBResponse) {}
 }
 

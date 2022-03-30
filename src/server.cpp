@@ -57,22 +57,22 @@ public:
         }
     }
 
-    int write(const char* buf, int offset, int size) {
+    int write(const char* buf, int address, int size) {
         std::fstream outfile;
         LOG_DEBUG_MSG("Opening file ", filename, " for writing");
         outfile.open(filename);
-        outfile.seekp(offset);
+        outfile.seekp(address);
         outfile.write(buf, size);
         outfile.close();
 
         return size;
     }
 
-    int read(char* buf, int offset, int size) {
+    int read(char* buf, int address, int size) {
         std::ifstream infile;
         LOG_DEBUG_MSG("Opening file ", filename, " for reading");
         infile.open(filename, std::ios::binary);
-        infile.seekg(offset);
+        infile.seekg(address);
         infile.read(buf, size);
         infile.close();
 
@@ -112,12 +112,22 @@ public:
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
             char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int flag = read(buf, readRequest->offset(), constants::BLOCK_SIZE);
+            int flag = read(buf, readRequest->address(), constants::BLOCK_SIZE);
             if (flag == -1)
                 return Status::CANCELLED;
             readResponse->set_data(buf);
             delete[] buf;
         }
+        return Status::OK;
+    }
+
+    Status hb_check(ServerContext *context, const ds::HBRequest *request, ds::HBResponse *response) {
+        if (request->is_primary()) {
+            LOG_DEBUG_MSG("I'm primary");
+        } else {
+            LOG_DEBUG_MSG("I'm secondary");
+        }
+
         return Status::OK;
     }
 
@@ -127,7 +137,7 @@ public:
             LOG_DEBUG_MSG("Starting primary server write");
             BlockState state = BlockState::DISK;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
-            temp_data[(int)writeRequest->offset()] = &info;
+            temp_data[(int)writeRequest->address()] = &info;
             if (backup_state == BackupState::ALIVE) {
                 ClientContext context;
                 ds::AckResponse ackResponse;
@@ -136,7 +146,7 @@ public:
                 LOG_DEBUG_MSG("back from backup");
             }
             LOG_DEBUG_MSG("write from map to file");
-            int flag = write(writeRequest->data().c_str(), writeRequest->offset(), writeRequest->data_length());
+            int flag = write(writeRequest->data().c_str(), writeRequest->address(), writeRequest->data_length());
             if (flag == -1)
                 return Status::CANCELLED;
             writeResponse->set_bytes_written(writeRequest->data_length());
@@ -144,7 +154,7 @@ public:
                 LOG_DEBUG_MSG("commit to backup");
                 ClientContext context;
                 ds::CommitRequest commitRequest;
-                commitRequest.set_offset(writeRequest->offset());
+                commitRequest.set_address(writeRequest->address());
                 ds::AckResponse ackResponse;
                 LOG_DEBUG_MSG("committed to backup");
             }
@@ -158,7 +168,7 @@ public:
             LOG_DEBUG_MSG("Starting backup server write");
             BlockState state = BlockState::LOCKED;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
-            temp_data[(int) writeRequest->offset()] = &info;
+            temp_data[(int) writeRequest->address()] = &info;
         } else {
             std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
         }
@@ -169,25 +179,40 @@ public:
                     ds::AckResponse *ackResponse) {
         LOG_DEBUG_MSG("calling commit on backup");
         BlockState diskState = BlockState::DISK;
-        Info *info = temp_data[(int)commitRequest->offset()];
-        write(info->data.c_str(), commitRequest->offset(), info->length);
-//        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->offset());
-        temp_data.erase((int)commitRequest->offset());
+        Info *info = temp_data[(int)commitRequest->address()];
+        write(info->data.c_str(), commitRequest->address(), info->length);
+//        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->address());
+        temp_data.erase((int)commitRequest->address());
         return Status::OK;
     }
 
     ~gRPCServiceImpl() {
         LOG_DEBUG_MSG("Calling destructor");
-        close(fd);
     }
 
 };
 
 int main(int argc, char *argv[]) {
+    if(argc < 7) {
+        printf("Usage : ./server -ip <ip> -port <port> -datafile <datafile>\n");
+        return 0;
+    }
+
+    std::string ip{"0.0.0.0"}, port{"50052"}, datafile{"data"};
+    for(int i = 1; i < argc - 1; ++i) {
+        if(!strcmp(argv[i], "-ip")) {
+            ip = std::string{argv[i+1]};
+        } else if(!strcmp(argv[i], "-port")) {
+            port = std::string{argv[i+1]};
+        } else if (!strcmp(argv[i], "-datafile")) {
+            datafile = std::string{argv[i+1]};
+        }
+    }
+
     LOG_DEBUG_MSG("Starting primary");
-    std::string server_address("0.0.0.0:50052");
+    std::string server_address(ip + ":" + port);
     gRPCServiceImpl service(grpc::CreateChannel("localhost:50053",
-        grpc::InsecureChannelCredentials()), argv[1]);
+        grpc::InsecureChannelCredentials()), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.SetMaxSendMessageSize(INT_MAX);
