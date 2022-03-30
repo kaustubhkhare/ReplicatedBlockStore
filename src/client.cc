@@ -31,41 +31,6 @@ using grpc::Status;
 using ds::gRPCService;
 
 class GRPCClient{
-public:
-    GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
-    p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
-
-    std::string p_read(int address, int length) {
-        LOG_DEBUG_MSG("Starting read");
-        ds::ReadRequest readRequest;
-        readRequest.set_address(address);
-        readRequest.set_data_length(length);
-        ds::ReadResponse readResponse;
-        ClientContext context;
-        LOG_DEBUG_MSG("sending read to server");
-        Status status = p_stub_->c_read(&context, readRequest, &readResponse);
-        LOG_DEBUG_MSG("back from server");
-        return readResponse.data();
-    }
-
-    int p_write(int address, int length, const char* wr_buffer) {
-        LOG_DEBUG_MSG("Starting client write");
-        ds::WriteRequest writeRequest;
-        writeRequest.set_address(address);
-        writeRequest.set_data_length(length);
-        writeRequest.set_data(wr_buffer);
-        ds::WriteResponse writeResponse;
-        ClientContext context;
-        LOG_DEBUG_MSG("Sending write to server");
-        Status status = p_stub_->c_write(&context, writeRequest, &writeResponse);
-        LOG_DEBUG_MSG("Back from server");
-        LOG_DEBUG_MSG(writeResponse.bytes_written(), " bytes written");
-        if (!status.ok()) {
-            return -ENONET;
-        }
-        return writeResponse.bytes_written();
-    }
-
 private:
     std::unique_ptr<gRPCService::Stub> p_stub_;
     std::unique_ptr<gRPCService::Stub> b_stub_;
@@ -80,9 +45,66 @@ private:
         }
         return ss.str();
     }
+public:
+    GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
+    p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
+
+<<<<<<< HEAD
+    std::string p_read(int address, int length) {
+        LOG_DEBUG_MSG("Starting read");
+        ds::ReadRequest readRequest;
+        readRequest.set_address(address);
+        readRequest.set_data_length(length);
+=======
+    std::string read(int address) {
+        LOG_DEBUG_MSG("Starting read");
+>>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
+        ds::ReadResponse readResponse;
+        ClientContext context;
+        ds::ReadRequest readRequest;
+        readRequest.set_address(address);
+
+        LOG_DEBUG_MSG("Sending read to server");
+        Status status = p_stub_->c_read(&context, readRequest, &readResponse);
+        LOG_DEBUG_MSG("Read from server" + readResponse.data());
+
+        if (!status.ok()) {
+            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            return "ERROR";
+        }
+        return readResponse.data();
+    }
+
+<<<<<<< HEAD
+    int p_write(int address, int length, const char* wr_buffer) {
+=======
+    int write(int address, int length, const char* wr_buffer) {
+>>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
+        LOG_DEBUG_MSG("Starting client write");
+        ClientContext context;
+        ds::WriteResponse writeResponse;
+        ds::WriteRequest writeRequest;
+        writeRequest.set_address(address);
+        writeRequest.set_data_length(length);
+        writeRequest.set_data(wr_buffer);
+
+        LOG_DEBUG_MSG("Sending write to server");
+        Status status = p_stub_->c_write(&context, writeRequest, &writeResponse);
+        LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
+
+        if (!status.ok()){
+            LOG_DEBUG_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            return ENONET;
+        }
+//        if (writeResponse.ret() < 0) {
+//            return writeResponse.ret();
+//        }
+        return writeResponse.bytes_written();
+    }
 };
 
 int main(int argc, char *argv[]) {
+<<<<<<< HEAD
     GRPCClient client(
         grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
         grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()));
@@ -107,5 +129,22 @@ int main(int argc, char *argv[]) {
 //    } else {
 //        LOG_DEBUG_MSG("equal");
 //    }
+=======
+    GRPCClient client(grpc::CreateChannel("localhost:50052", grpc::InsecureChannelCredentials()),
+                      grpc::CreateChannel("localhost:50053", grpc::InsecureChannelCredentials()));
+    std::string buf(10, 'b');
+    LOG_DEBUG_MSG(buf.size());
+    int bytes = client.write(4000, buf.length(), buf.c_str());
+    LOG_DEBUG_MSG(bytes);
+
+    std::string bufRead = client.read(0);
+//    std::cout << bufRead[0] << bufRead[1]<<"\n";
+    std::cout << buf << " "<< bufRead;
+    if (buf.compare(bufRead) != 0) {
+        LOG_DEBUG_MSG("not equal");
+    } else {
+        LOG_DEBUG_MSG("equal");
+    }
+>>>>>>> de1d6195cb59e8649f5c7cdd6ac4b8e4f1ba0298
     return 0;
 }
