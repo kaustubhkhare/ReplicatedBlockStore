@@ -2,6 +2,9 @@
 
 #include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include <grpcpp/grpcpp.h>
+#include <openssl/sha.h>
+#include <iomanip>
+#include <iostream>
 #include <signal.h>
 #include <chrono>
 #include <ctime>
@@ -10,6 +13,12 @@
 #include <numeric>
 #include <fstream>
 #include <memory>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "constants.h"
 #include "helper.h"
@@ -25,10 +34,20 @@ class GRPCClient{
 private:
     std::unique_ptr<gRPCService::Stub> p_stub_;
     std::unique_ptr<gRPCService::Stub> b_stub_;
-public:
-    GRPCClient(std::shared_ptr<Channel> channel1, std::shared_ptr<Channel> channel2) :
-    p_stub_(gRPCService::NewStub(channel1)), b_stub_(gRPCService::NewStub(channel2)) {
+    static std::string hash_str(const char* src) {
+        auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
+        SHA256(reinterpret_cast<const unsigned char*>(src), strlen(src),
+               digest.get());
+        std::stringstream ss;
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+            ss << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<int>(digest[i]);
+        }
+        return ss.str();
     }
+public:
+    GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
+    p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
 
     std::string read(int offset) {
         LOG_DEBUG_MSG("Starting read");
@@ -65,6 +84,9 @@ public:
             LOG_DEBUG_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
             return ENONET;
         }
+//        if (writeResponse.ret() < 0) {
+//            return writeResponse.ret();
+//        }
         return writeResponse.bytes_written();
     }
 };

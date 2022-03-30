@@ -2,6 +2,8 @@
 #include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include <grpcpp/grpcpp.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <string>
 #include <unistd.h>
@@ -9,6 +11,9 @@
 #include <stdexcept>
 #include <iostream>
 #include <fstream>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <memory>
 
 #include "constants.h"
 #include "helper.h"
@@ -170,6 +175,12 @@ public:
         temp_data.erase((int)commitRequest->offset());
         return Status::OK;
     }
+
+    ~gRPCServiceImpl() {
+        LOG_DEBUG_MSG("Calling destructor");
+        close(fd);
+    }
+
 };
 
 int main(int argc, char *argv[]) {
