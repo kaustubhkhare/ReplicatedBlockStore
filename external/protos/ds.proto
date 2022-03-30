@@ -35,9 +35,8 @@ message HBRequest {
 message HBResponse {
   int32 status = 1;
 }
-
 message ReintegrationResponse {
-    repeated int32 offsets = 1;
+    repeated int32 addresses = 1;
     repeated string data = 2;
     repeated int32 data_lengths = 3;
 }
@@ -50,8 +49,8 @@ service gRPCService {
   rpc s_read (ReadRequest) returns (ReadResponse) {}
   rpc s_write (WriteRequest) returns (AckResponse) {}
   rpc s_commit (CommitRequest) returns (AckResponse) {}
-  rpc p_reintegrate (ReintegrationRequest) returns (ReintegrationResponse) {}
-  rpc p_reintegrate_phase_two (ReintegrationRequest) returns (ReintegrationResponse) {}
+  rpc p_reintegration (ReintegrationRequest) returns (ReintegrationResponse) {}
+  rpc p_reintegration_phase_two (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc p_reintegration_complete (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc hb_check(HBRequest) returns (HBResponse) {}
 }

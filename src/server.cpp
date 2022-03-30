@@ -15,7 +15,7 @@
 #include <sys/types.h>
 #include <memory>
 #include <future>
-#include <threads>
+#include <thread>
 
 #include "constants.h"
 #include "helper.h"
@@ -39,7 +39,7 @@ private:
         std::string data;
     } Info;
     std::string filename;
-    enum class BackupState {ALIVE, DEAD, REINTEGRATE};
+    enum class BackupState {ALIVE, DEAD, REINTEGRATION};
     std::atomic<BackupState> backup_state;
     enum class ServerState: int32_t { PRIMARY = 0, BACKUP };
     std::atomic<ServerState> current_server_state_;
@@ -111,7 +111,7 @@ public:
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
 
         if (!primary) {
-            secondary_reintegrate();
+            secondary_reintegration();
         }
         LOG_DEBUG_MSG("constructor called");
         fd = open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
@@ -134,7 +134,7 @@ public:
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("reading from primary");
             char *buf = (char *) calloc(constants::BLOCK_SIZE, sizeof(char));
-            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->offset());
+            int bytes_read = pread(fd, buf, constants::BLOCK_SIZE, readRequest->address());
             LOG_DEBUG_MSG(bytes_read, " bytes read");
             readResponse->set_data(buf);
             delete[] buf;
@@ -150,9 +150,9 @@ public:
         }
         return Status::OK;
     }
-    // Returns the block indices for the offset and data_length. In this case return vector size is at most 2
-    std::vector<int> get_blocks_involved(const int offset, const int data_length) {
-        int first_block = offset / BLOCK_SIZE;
+    // Returns the block indices for the address and data_length. In this case return vector size is at most 2
+    std::vector<int> get_blocks_involved(const int address, const int data_length) {
+        int first_block = address / BLOCK_SIZE;
         int end_of_first_block = first_block + BLOCK_SIZE - 1,
             first_block_size_left = end_of_first_block - first_block * BLOCK_SIZE;
         std::vector blocks_involved;
@@ -175,7 +175,7 @@ public:
 
     void get_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
         reintegration_lock.lock();
-        vector<int> blocks = get_blocks_involved(writeRequest->offset, writeRequest->data_length);
+        vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
         if (blocks.size() == 1) {
             per_block_locks[blocks[0]].lock();
         } else {
@@ -201,36 +201,36 @@ public:
     }
 
     void release_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
-        vector<int> blocks = get_blocks_involved(writeRequest->offset, writeRequest->data_length);
+        vector<int> blocks = get_blocks_involved(writeRequest->address, writeRequest->data_length);
         for (const int &block: blocks) {
             per_block_locks[block].release();
         }
         reintegration_lock.unlock();
     }
 
-    Status p_reintegrate(ServerContext *context, const ds::ReintegrateRequest* reintegrateRequest,
-                         ds::ReintegrateResponse* reintegrateResponse) {
+    Status p_reintegration(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
+                         ds::ReintegrationResponse* reintegrationResponse) {
 
         assert_msg(current_server_state_ != ServerState::PRIMARY, "Reintegration called on backup");
-        this->backup_state = BackupState::REINTEGRATE;
+        this->backup_state = BackupState::REINTEGRATION;
         // return the entries in temp_data that are in disk state.
         // opt_todo: stream the entries instead of returning at once
         for (auto it: temp_data) {
             Info *info = it.second;
             if (info->state == BlockState::DISK) {
-                int *offset = reintegrateResponse->add_offsets();
-                *offset = it.first;
-                int *data_length = reintegrateResponse->add_data_lengths();
+                int *address = reintegrationResponse->add_addressss();
+                *address = it.first;
+                int *data_length = reintegrationResponse->add_data_lengths();
                 *data_length = info->length;
-                string *data = reintegrateResponse->add_data();
+                string *data = reintegrationResponse->add_data();
                 *data = info->data;
             }
         }
         return Status::OK;
     }
 
-    Status p_reintegrate_phase_two(ServerContext *context, const ds::ReintegrateRequest* reintegrateRequest,
-                         ds::ReintegrateResponse* reintegrateResponse) {
+    Status p_reintegration_phase_two(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
+                         ds::ReintegrationResponse* reintegrationResponse) {
 
         assert_msg(current_server_state_ != ServerState::PRIMARY, "Reintegration called on backup");
 
@@ -242,51 +242,51 @@ public:
         for (auto it: temp_data) {
             Info *info = it.second;
             if (info->state == BlockState::MEMORY) {
-                int *offset = reintegrateResponse->add_offsets();
-                *offset = it.first;
-                int *data_length = reintegrateResponse->add_data_lengths();
+                int *address = reintegrationResponse->add_addresses();
+                *address = it.first;
+                int *data_length = reintegrationResponse->add_data_lengths();
                 *data_length = info->length;
-                string *data = reintegrateResponse->add_data();
+                string *data = reintegrationResponse->add_data();
                 *data = info->data;
             }
         }
         return Status::OK;
     }
 
-    Status p_reintegration_complete(ServerContext *context, const ds::ReintegrateRequest* reintegrateRequest,
-                                    ds::ReintegrateResponse* reintegrateResponse) {
+    Status p_reintegration_complete(ServerContext *context, const ds::reintegrationRequest* reintegrationRequest,
+                                    ds::reintegrationResponse* reintegrationResponse) {
         this->backup_state = BackupState::ALIVE;
         reintegration_lock.unlock();
         return Status::OK;
     }
 
-    void secondary_reintegrate() {
+    void secondary_reintegration() {
         ClientContext* context;
         ReintegrationRequest* reintegration_request = new ReintegrationRequest;
         ReintegrationResponse* reintegration_response = new ReintegrationResponse;
-        Status status = stub_->p_reintegrate(context, reintegration_request, reintegration_response);
+        Status status = stub_->p_reintegration(context, reintegration_request, reintegration_response);
 
         // write all missing writes in the backup
         for (int i = 0; i < reintegration_response.data_size(); i++) {
             pwrite(fd, &reintegration_response->data(i), reintegration_response->data_length(i),
-                   reintegration_response->offsets(i));
+                   reintegration_response->addresses(i));
         }
 
         // get memory based writes
         reintegration_response->clear_data();
         reintegration_response->clear_data_lengths();
-        reintegration_response->clear_offsets();
-        status = stub_->p_reintegrate_phase_two(context, reintegration_request, reintegration_response);
+        reintegration_response->clear_addresses();
+        status = stub_->p_reintegration_phase_two(context, reintegration_request, reintegration_response);
 
         for (int i = 0; i < reintegration_response.data_size(); i++) {
             pwrite(fd, &reintegration_response->data(i), reintegration_response->data_length(i),
-                   reintegration_response->offsets(i));
+                   reintegration_response->addresses(i));
         }
 
         // notify primary that reintegration is complete
         reintegration_response->clear_data();
         reintegration_response->clear_data_lengths();
-        reintegration_response->clear_offsets();
+        reintegration_response->clear_addresses();
         status = stub_->p_reintegration_complete(context, reintegration_request, reintegration_response);
 
     }
@@ -303,7 +303,7 @@ public:
 //                }
 //            }
 
-            BlockState state = (backup_state == BackupState::REINTEGRATE) ? BlockState::MEMORY : BlockState::DISK;
+            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int)writeRequest->address()] = &info;
             if (backup_state == BackupState::ALIVE) {
