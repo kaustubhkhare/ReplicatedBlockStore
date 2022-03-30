@@ -3,7 +3,7 @@ syntax = "proto3";
 package ds;
 
 message ReadRequest {
-    int64 offset = 1;
+    int64 address = 1;
 }
 
 message ReadResponse {
@@ -11,7 +11,7 @@ message ReadResponse {
 }
 
 message WriteRequest {
-    int32 offset = 1;
+    int32 address = 1;
     bytes data = 2;
     int32 data_length = 3;
 }
@@ -21,31 +21,25 @@ message WriteResponse {
 }
 
 message CommitRequest {
-    int32 offset = 1;
+    int32 address = 1;
 }
 
 message AckResponse {
     bool done = 1;
 }
-message MessageInt {
-    int32 value = 1;
+
+message HBRequest {
+  bool is_primary = 1;
 }
-message MessageDouble {
-  double value = 1;
+
+message HBResponse {
+  int32 status = 1;
 }
-message MessageString {
-  string value = 1;
-}
-message MessageComplex {
-  int32 num1 = 1;
-  int64 num2 = 2;
-  double num3 = 3;
-  string string1 = 4;
-}
+
 message ReintegrationResponse {
-    repeated int32 offsets;
-    repeated string data;
-    repeated int32 data_lengths;
+    repeated int32 offsets = 1;
+    repeated string data = 2;
+    repeated int32 data_lengths = 3;
 }
 message ReintegrationRequest {
 }
@@ -59,12 +53,6 @@ service gRPCService {
   rpc p_reintegrate (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc p_reintegrate_phase_two (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc p_reintegration_complete (ReintegrationRequest) returns (ReintegrationResponse) {}
-  rpc SayHelloInt (MessageInt) returns (MessageInt) {}
-  rpc SayHelloDouble (MessageDouble) returns (MessageDouble) {}
-  rpc SayHelloString (MessageString) returns (MessageString) {}
-  rpc SayHelloComplex (MessageComplex) returns (MessageInt) {}
-  rpc SayServerStreamingString(MessageInt) returns (stream MessageString) {}
-  rpc SayClientStreamingString(stream MessageString) returns (MessageInt) {}
-  rpc SayBiStreamingInt(stream MessageInt) returns (stream MessageInt) {}
+  rpc hb_check(HBRequest) returns (HBResponse) {}
 }
 
