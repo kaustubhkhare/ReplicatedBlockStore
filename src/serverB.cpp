@@ -60,7 +60,7 @@ public:
             LOG_DEBUG_MSG("reading from primary");
             int buf_size = constants::BLOCK_SIZE;
             auto buf = std::make_unique<std::string>(buf_size, '\0');
-            int bytes_read = pread(fd, buf->data(), buf_size, readRequest->offset());
+            int bytes_read = pread(fd, buf->data(), buf_size, readRequest->address());
             LOG_DEBUG_MSG(bytes_read, " bytes read");
 //            readResponse->set_data(buf.release());
         } else {
@@ -83,7 +83,7 @@ public:
             LOG_DEBUG_MSG("Starting primary server write");
             BlockState state = BlockState::DISK;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
-            temp_data[(int)writeRequest->offset()] = &info;
+            temp_data[(int)writeRequest->address()] = &info;
 
             if (backup_state == BackupState::ALIVE) {
                 ClientContext context;
@@ -94,14 +94,14 @@ public:
             }
 
             LOG_DEBUG_MSG("write from map to file");
-            int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->offset());
+            int bytes = pwrite(fd, &writeRequest->data(), writeRequest->data_length(), writeRequest->address());
             writeResponse->set_bytes_written(bytes);
 
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
                 ClientContext context;
                 ds::CommitRequest commitRequest;
-                commitRequest.set_offset(writeRequest->offset());
+                commitRequest.set_address(writeRequest->address());
                 ds::AckResponse ackResponse;
 //                std::future<Status> f = std::async(std::launch::async,
 //                    stub_->s_commit, &context, commitRequest, &ackResponse);
@@ -119,7 +119,7 @@ public:
             LOG_DEBUG_MSG("Starting backup server write");
             BlockState state = BlockState::LOCKED;
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
-            temp_data[(int) writeRequest->offset()] = &info;
+            temp_data[(int) writeRequest->address()] = &info;
         } else {
             LOG_DEBUG_MSG("calling s_write at backup?");
         }
@@ -130,9 +130,9 @@ public:
         ds::AckResponse *ackResponse) {
         LOG_DEBUG_MSG("calling commit on backup");
         BlockState diskState = BlockState::DISK;
-        Info *info = temp_data[(int)commitRequest->offset()];
-        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->offset());
-        temp_data.erase((int)commitRequest->offset());
+        Info *info = temp_data[(int)commitRequest->address()];
+        int bytes = pwrite(fd, info->data.c_str(), info->length, commitRequest->address());
+        temp_data.erase((int)commitRequest->address());
         return Status::OK;
     }
 

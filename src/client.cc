@@ -35,10 +35,10 @@ public:
     GRPCClient(std::shared_ptr<Channel> p_channel, std::shared_ptr<Channel> b_channel) :
     p_stub_(gRPCService::NewStub(p_channel)), b_stub_(gRPCService::NewStub(b_channel)) {}
 
-    std::string p_read(int offset) {
+    std::string p_read(int address) {
         LOG_DEBUG_MSG("Starting read");
         ds::ReadRequest readRequest;
-        readRequest.set_offset(offset);
+        readRequest.set_address(address);
         ds::ReadResponse readResponse;
         ClientContext context;
         LOG_DEBUG_MSG("sending read to server");
@@ -47,11 +47,11 @@ public:
         return readResponse.data();
     }
 
-    int p_write(int offset, int length, const char* wr_buffer){
+    int p_write(int address, int length, const char* wr_buffer){
 //    , std::unique_ptr<std::string> wr_buffer) {
         LOG_DEBUG_MSG("Starting client write");
         ds::WriteRequest writeRequest;
-        writeRequest.set_offset(offset);
+        writeRequest.set_address(address);
         writeRequest.set_data_length(length);
         writeRequest.set_data(wr_buffer);
         ds::WriteResponse writeResponse;
@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
     int data_size = constants::BLOCK_SIZE;
     int address = 0;
 //    auto buf = std::make_unique<std::string>(data_size, 'a');
-    std::string buf(constants::BLOCK_SIZE, 'a');
+    std::string buf(data_size, 'a');
     LOG_DEBUG_MSG("Writing ", buf);
     int bytes = client.p_write(address, data_size, buf.c_str());
     LOG_DEBUG_MSG(bytes, " bytes written");
