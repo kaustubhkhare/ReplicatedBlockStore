@@ -268,10 +268,10 @@ public:
     }
 
     void secondary_reintegration() {
-        ClientContext* context;
-        ds::ReintegrationRequest* reintegration_request = new ds::ReintegrationRequest;
-        ds::ReintegrationResponse* reintegration_response = new ds::ReintegrationResponse;
-        Status status = stub_->p_reintegration(context, reintegration_request, reintegration_response);
+        ClientContext context;
+        ds::ReintegrationRequest reintegration_request;
+        ds::ReintegrationResponse reintegration_response;
+        Status status = stub_->p_reintegration(context, reintegration_request, &reintegration_response);
 
         // write all missing writes in the backup
         for (int i = 0; i < reintegration_response.data_size(); i++) {
