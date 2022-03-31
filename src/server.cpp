@@ -386,7 +386,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    std::string ip{"0.0.0.0"}, port{"60052"}, datafile{"data"};
+    std::string ip{"0.0.0.0"}, port{std::to_string(constants::PRIMARY_PORT)}, datafile{"data"};
     for(int i = 1; i < argc - 1; ++i) {
         if(!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
@@ -399,7 +399,7 @@ int main(int argc, char *argv[]) {
 
     LOG_DEBUG_MSG("Starting primary");
     std::string server_address(ip + ":" + port);
-    gRPCServiceImpl service(grpc::CreateChannel("localhost:60053",
+    gRPCServiceImpl service(grpc::CreateChannel("localhost:" + std::to_string(constants::BACKUP_PORT),
         grpc::InsecureChannelCredentials()), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
