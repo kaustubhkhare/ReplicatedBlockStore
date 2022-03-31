@@ -228,12 +228,12 @@ public:
         for (auto it: temp_data) {
             Info *info = it.second;
             if (info->state == BlockState::DISK) {
-                int *address = reintegrationResponse->add_addresses();
-                *address = it.first;
-                int *data_length = reintegrationResponse->add_data_lengths();
-                *data_length = info->length;
-                std::string *data = reintegrationResponse->add_data();
-                *data = info->data;
+                int address = it.first;
+                reintegrationResponse->add_addresses(address);
+
+                int data_length = info->length;
+                reintegrationResponse->add_data_lengths(data_length);
+                reintegrationResponse->add_data(info->data);
             }
         }
         return Status::OK;
@@ -252,12 +252,9 @@ public:
         for (auto it: temp_data) {
             Info *info = it.second;
             if (info->state == BlockState::MEMORY) {
-                int *address = reintegrationResponse->add_addresses();
-                *address = it.first;
-                int *data_length = reintegrationResponse->add_data_lengths();
-                *data_length = info->length;
-                std::string *data = reintegrationResponse->add_data();
-                *data = info->data;
+                reintegrationResponse->add_addresses(it.first);
+                reintegrationResponse->add_data_lengths(info->length);
+                reintegrationResponse->add_data(info->data);
             }
         }
         return Status::OK;
