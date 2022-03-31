@@ -33,6 +33,8 @@ message ServerDiscoveryResponse {
   repeated string hosts = 1;
   int32 primary = 2;
   int32 secondary = 3;
+  int64 lease_start = 4;
+  int64 lease_duration = 5;
 }
 
 message ServerDiscoveryRequest {
