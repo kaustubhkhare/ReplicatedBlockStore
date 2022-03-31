@@ -140,7 +140,7 @@ int main(int argc, char *argv[]) {
     }
     std::string server_address(ip + ":" + port);
     std::vector<std::string> targets {"localhost:" + std::to_string(constants::PRIMARY_PORT),
-                                      "localhost:" + std::to_string(constants::BACKUP)};
+                                      "localhost:" + std::to_string(constants::BACKUP_PORT)};
     std::vector<std::shared_ptr<::grpc::Channel>> channels {
         grpc::CreateChannel(targets[0], grpc::InsecureChannelCredentials()),
         grpc::CreateChannel(targets[1], grpc::InsecureChannelCredentials())
