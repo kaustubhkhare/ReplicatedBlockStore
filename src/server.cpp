@@ -275,28 +275,28 @@ public:
 
         // write all missing writes in the backup
         for (int i = 0; i < reintegration_response.data_size(); i++) {
-            write(&reintegration_response->data(i),
-                   reintegration_response->addresses(i),
-                  reintegration_response->data_length(i));
+            write(reintegration_response.data(i).c_str(),
+                   reintegration_response.addresses(i),
+                  reintegration_response.data_length(i));
         }
 
         // get memory based writes
-        reintegration_response->clear_data();
-        reintegration_response->clear_data_lengths();
-        reintegration_response->clear_addresses();
-        status = stub_->p_reintegration_phase_two(context, reintegration_request, reintegration_response);
+        reintegration_response.clear_data();
+        reintegration_response.clear_data_lengths();
+        reintegration_response.clear_addresses();
+        status = stub_->p_reintegration_phase_two(&context, reintegration_request, &reintegration_response);
 
         for (int i = 0; i < reintegration_response.data_size(); i++) {
-            write(&reintegration_response->data(i),
+            write(reintegration_response->data(i).c_str(),
                     reintegration_response->addresses(i),
                     reintegration_response->data_length(i));
         }
 
         // notify primary that reintegration is complete
-        reintegration_response->clear_data();
-        reintegration_response->clear_data_lengths();
-        reintegration_response->clear_addresses();
-        status = stub_->p_reintegration_complete(context, reintegration_request, reintegration_response);
+        reintegration_response.clear_data();
+        reintegration_response.clear_data_lengths();
+        reintegration_response.clear_addresses();
+        status = stub_->p_reintegration_complete(&context, reintegration_request, &reintegration_response);
 
     }
 
