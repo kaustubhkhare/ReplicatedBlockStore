@@ -180,7 +180,7 @@ public:
         return Status::OK;
     }
 
-    void get_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
+    void get_write_locks(const ds::WriteRequest *writeRequest) {
         reintegration_lock.lock();
         std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
         if (blocks.size() == 1) {
@@ -210,7 +210,7 @@ public:
         }
     }
 
-    void release_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
+    void release_write_locks(const ds::WriteRequest *writeRequest) {
         std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
         for (const int &block: blocks) {
             per_block_locks[block].unlock();
@@ -277,7 +277,7 @@ public:
         for (int i = 0; i < reintegration_response.data_size(); i++) {
             write(reintegration_response.data(i).c_str(),
                    reintegration_response.addresses(i),
-                  reintegration_response.data_length(i));
+                  reintegration_response.data_lengths(i));
         }
 
         // get memory based writes
@@ -287,9 +287,9 @@ public:
         status = stub_->p_reintegration_phase_two(&context, reintegration_request, &reintegration_response);
 
         for (int i = 0; i < reintegration_response.data_size(); i++) {
-            write(reintegration_response->data(i).c_str(),
-                    reintegration_response->addresses(i),
-                    reintegration_response->data_length(i));
+            write(reintegration_response.data(i).c_str(),
+                    reintegration_response.addresses(i),
+                    reintegration_response.data_length(i));
         }
 
         // notify primary that reintegration is complete
@@ -304,7 +304,7 @@ public:
                    ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
-            get_write_locks(writeRequest->address());
+            get_write_locks(writeRequest);
 //            for (int i = 0; i < pending_futures.size(); i++) {
 //                if (pending_futures[i].valid()) {
 //                        int address = pending_futures[i].get();
