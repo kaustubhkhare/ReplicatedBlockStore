@@ -123,7 +123,7 @@ public:
         std::vector<int> blocks = get_blocks_involved(readRequest->address(), constants::BLOCK_SIZE);
         // change this to get signaled when the entry is removed from the map (write to that block is complete)
         bool can_read_all = false;
-        while(can_read_all) {
+        while(!can_read_all) {
             can_read_all = true;
             for (const int &b: blocks) {
                 if (temp_data.count(b) == 0 && temp_data[b]->state == BlockState::LOCKED) {
@@ -186,7 +186,7 @@ public:
             bool first_block_lock_acquired = false,
                     second_block_lock_acquired = false;
 
-            while(first_block_lock_acquired && second_block_lock_acquired) {
+            while(!first_block_lock_acquired || !second_block_lock_acquired) {
                 // try acquiring the locks
                 first_block_lock_acquired = !first_block_lock_acquired && first_block_lock.try_lock();
                 second_block_lock_acquired = !first_block_lock_acquired && second_block_lock.try_lock();
