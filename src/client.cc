@@ -38,6 +38,8 @@ private:
     std::vector<std::string> servers;
     int primary_idx;
     int secondary_idx;
+    long double lease_start;
+    long double lease_duration;
 
     static std::string hash_str(const char* src) {
         auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
@@ -54,7 +56,8 @@ public:
     GRPCClient(std::shared_ptr<Channel> lb_channel) : lb_stub_(LBService::NewStub(lb_channel)) {}
 
     std::string read(int address, int length) {
-        discover_servers(false);
+        if (time_monotonic() > (lease_start + lease_duration))
+            discover_servers(false);
         LOG_DEBUG_MSG("Starting read");
         ds::ReadResponse readResponse;
         ClientContext context;
@@ -68,13 +71,15 @@ public:
 
         if (!status.ok()) {
             LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            discover_servers(false);
             return "ERROR";
         }
         return readResponse.data();
     }
 
     int write(int address, int length, const char* wr_buffer) {
-        discover_servers(false);
+        if (time_monotonic() > (lease_start + lease_duration))
+            discover_servers(false);
         LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
@@ -89,6 +94,7 @@ public:
 
         if (!status.ok()){
             LOG_DEBUG_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            discover_servers(false);
             return ENONET;
         }
 //        if (writeResponse.ret() < 0) {
@@ -120,6 +126,9 @@ public:
             }
             primary_idx = response.primary();
             secondary_idx = response.secondary();
+            lease_start = response.lease_start();
+            lease_duration = response.lease_duration();
+
             server_stubs_[primary_idx] = gRPCService::NewStub(grpc::CreateChannel(servers[primary_idx],
                                                                       grpc::InsecureChannelCredentials()));
             server_stubs_[secondary_idx] = gRPCService::NewStub(grpc::CreateChannel(servers[secondary_idx],

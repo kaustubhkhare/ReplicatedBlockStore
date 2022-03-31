@@ -117,6 +117,8 @@ public:
         assign_new_secondary();
         response->set_primary(primary_idx.load());
         response->set_secondary(secondary_idx.load());
+        response->set_lease_start(time_monotonic());
+        response->set_lease_duration(2e9);
 
         return Status::OK;
     }

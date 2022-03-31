@@ -1,11 +1,18 @@
 #include <string>
 #include <stdexcept>
+#include <time.h>
 
 constexpr bool DISABLE_CERR_ERRORS = false;
 constexpr bool ENABLE_LOG_FNAME = true;
 constexpr bool ENABLE_LOG_DEBUG_MSG = true;
 constexpr bool ENABLE_LOG_INFO_MSG = true;
 constexpr bool ENABLE_LOG_ERR_MSG = true; // always keep true
+
+static inline long double time_monotonic() {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return (time.tv_sec * 1000000000.0L ) + time.tv_nsec;
+}
 
 #define ASS(cond, msg) assert_msg(cond, std::string(__PRETTY_FUNCTION__) + std::string(" assert fail w msg: ") + std::string(msg));
 void assert_msg(bool cond, const std::string& msg) {
