@@ -119,7 +119,7 @@ public:
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
         ASS(current_server_state_ == ServerState::PRIMARY, "waiting for reads in primary shouldn't happen");
-        std::vector<int> blocks = get_blocks_involved(readRequest->address, constants::BLOCK_SIZE);
+        std::vector<int> blocks = get_blocks_involved(readRequest->address(), constants::BLOCK_SIZE);
         // change this to get signaled when the entry is removed from the map (write to that block is complete)
         bool can_read_all = false;
         while(can_read_all) {
@@ -160,8 +160,8 @@ public:
     // Returns the block indices for the address and data_length. In this case return vector size is at most 2
     std::vector<int> get_blocks_involved(const int address, const int data_length) {
         int first_block = address / constants::BLOCK_SIZE;
-        int end_of_first_block = first_block + BLOCK_SIZE - 1;
-        int first_block_size_left = end_of_first_block - first_block * BLOCK_SIZE;
+        int end_of_first_block = first_block + constants::BLOCK_SIZE - 1;
+        int first_block_size_left = end_of_first_block - first_block * constants::BLOCK_SIZE;
         std::vector<int> blocks_involved;
         blocks_involved.push_back(first_block);
         if (data_length > first_block_size_left) {
@@ -182,13 +182,14 @@ public:
 
     void get_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
         reintegration_lock.lock();
-        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
         if (blocks.size() == 1) {
             per_block_locks[blocks[0]].lock();
         } else {
             // max size can only be 2, same thing can be generalized to n, no need in this case.
-            std::mutex first_block_lock = per_block_locks[blocks[0]],
-                        second_block_lock = per_block_locks[blocks[1]];
+            std::mutex& first_block_lock = per_block_locks[blocks[0]];
+            std::mutex& second_block_lock = per_block_locks[blocks[1]];
+
             bool first_block_lock_acquired = false,
                     second_block_lock_acquired = false;
 
@@ -210,7 +211,7 @@ public:
     }
 
     void release_write_locks(ServerContext *context, const ds::WriteRequest *writeRequest) {
-        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
         for (const int &block: blocks) {
             per_block_locks[block].unlock();
         }
@@ -231,7 +232,7 @@ public:
                 *address = it.first;
                 int *data_length = reintegrationResponse->add_data_lengths();
                 *data_length = info->length;
-                string *data = reintegrationResponse->add_data();
+                std::string *data = reintegrationResponse->add_data();
                 *data = info->data;
             }
         }
@@ -255,7 +256,7 @@ public:
                 *address = it.first;
                 int *data_length = reintegrationResponse->add_data_lengths();
                 *data_length = info->length;
-                string *data = reintegrationResponse->add_data();
+                std::string *data = reintegrationResponse->add_data();
                 *data = info->data;
             }
         }
@@ -271,8 +272,8 @@ public:
 
     void secondary_reintegration() {
         ClientContext* context;
-        ReintegrationRequest* reintegration_request = new ReintegrationRequest;
-        ReintegrationResponse* reintegration_response = new ReintegrationResponse;
+        ds::ReintegrationRequest* reintegration_request = new ds::ReintegrationRequest;
+        ds::ReintegrationResponse* reintegration_response = new ds::ReintegrationResponse;
         Status status = stub_->p_reintegration(context, reintegration_request, reintegration_response);
 
         // write all missing writes in the backup
@@ -306,7 +307,7 @@ public:
                    ds::WriteResponse *writeResponse) {
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
-            get_write_locks(writeRequest->address);
+            get_write_locks(writeRequest->address());
 //            for (int i = 0; i < pending_futures.size(); i++) {
 //                if (pending_futures[i].valid()) {
 //                        int address = pending_futures[i].get();
