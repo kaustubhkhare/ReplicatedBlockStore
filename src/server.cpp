@@ -163,8 +163,8 @@ public:
     // Returns the block indices for the address and data_length. In this case return vector size is at most 2
     std::vector<int> get_blocks_involved(const int address, const int data_length) {
         int first_block = address / constants::BLOCK_SIZE;
-        int end_of_first_block = first_block + constants::BLOCK_SIZE - 1;
-        int first_block_size_left = end_of_first_block - first_block * constants::BLOCK_SIZE;
+        int end_of_first_block = (first_block + 1) * constants::BLOCK_SIZE - 1;
+        int first_block_size_left = end_of_first_block - address + 1;
         std::vector<int> blocks_involved;
         blocks_involved.push_back(first_block);
         if (data_length > first_block_size_left) {
@@ -386,7 +386,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    std::string ip{"0.0.0.0"}, port{"60052"}, datafile{"data"};
+    std::string ip{"0.0.0.0"}, port{std::to_string(constants::PRIMARY_PORT)}, datafile{"data"};
     for(int i = 1; i < argc - 1; ++i) {
         if(!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
@@ -399,7 +399,7 @@ int main(int argc, char *argv[]) {
 
     LOG_DEBUG_MSG("Starting primary");
     std::string server_address(ip + ":" + port);
-    gRPCServiceImpl service(grpc::CreateChannel("localhost:60053",
+    gRPCServiceImpl service(grpc::CreateChannel("localhost:" + std::to_string(constants::BACKUP_PORT),
         grpc::InsecureChannelCredentials()), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
