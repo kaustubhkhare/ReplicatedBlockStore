@@ -6,7 +6,7 @@ project(project3)
 add_executable(client client.cc)
 add_executable(health_client health_client.cc)
 add_executable(server server.cpp)
-#add_executable(serverB serverB.cpp)
+add_executable(serverC serverC.cpp)
 
 add_executable(test testC.cpp)
 
@@ -24,11 +24,11 @@ target_link_libraries(health_client Threads::Threads gRPC::grpc++ p3protolib)
 add_dependencies(client p3protolib)
 add_dependencies(server p3protolib)
 add_dependencies(health_client p3protolib)
-#add_dependencies(serverB p3protolib)
+add_dependencies(serverC p3protolib)
 
 set_target_properties(client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
 set_target_properties(server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
-#set_target_properties(serverB PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
+set_target_properties(serverC PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
 set_target_properties(test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
 
 set_target_properties(health_client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
