@@ -173,6 +173,65 @@ public:
         return blocks_involved;
     }
 
+    void get_write_locks(const ds::WriteRequest *writeRequest) {
+        reintegration_lock.lock();
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
+        if (blocks.size() == 1) {
+            per_block_locks[blocks[0]].lock();
+        } else {
+            // max size can only be 2, same thing can be generalized to n, no need in this case.
+            std::mutex& first_block_lock = per_block_locks[blocks[0]];
+            std::mutex& second_block_lock = per_block_locks[blocks[1]];
+
+            bool first_block_lock_acquired = false,
+                    second_block_lock_acquired = false;
+
+            while(first_block_lock_acquired && second_block_lock_acquired) {
+                // try acquiring the locks
+                first_block_lock_acquired = !first_block_lock_acquired && first_block_lock.try_lock();
+                second_block_lock_acquired = !first_block_lock_acquired && second_block_lock.try_lock();
+                // if both obtained, will get out of loop, if not both obtained, release obtained locks
+                if (!first_block_lock_acquired || !second_block_lock_acquired) {
+                    if (first_block_lock_acquired) {
+                        first_block_lock.unlock();
+                    }
+                    if (second_block_lock_acquired) {
+                        second_block_lock.unlock();
+                    }
+                }
+            }
+        }
+    }
+
+    void release_write_locks(const ds::WriteRequest *writeRequest) {
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
+        for (const int &block: blocks) {
+            per_block_locks[block].unlock();
+        }
+        reintegration_lock.unlock();
+    }
+
+    Status p_reintegration(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
+                         ds::ReintegrationResponse* reintegrationResponse) {
+
+        assert_msg(current_server_state_ != ServerState::PRIMARY, "Reintegration called on backup");
+        this->backup_state = BackupState::REINTEGRATION;
+        // return the entries in temp_data that are in disk state.
+        // opt_todo: stream the entries instead of returning at once
+        for (auto it: temp_data) {
+            Info *info = it.second;
+            if (info->state == BlockState::DISK) {
+                int address = it.first;
+                reintegrationResponse->add_addresses(address);
+
+                int data_length = info->length;
+                reintegrationResponse->add_data_lengths(data_length);
+                reintegrationResponse->add_data(info->data);
+            }
+        }
+        return Status::OK;
+    }
+
     Status p_reintegration_phase_two(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
                          ds::ReintegrationResponse* reintegrationResponse) {
 
