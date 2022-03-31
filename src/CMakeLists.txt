@@ -14,11 +14,12 @@ find_package(OpenSSL REQUIRED)
 target_link_libraries(client Threads::Threads gRPC::grpc++ p3protolib)
 target_link_libraries(client OpenSSL::SSL)
 target_link_libraries(server Threads::Threads gRPC::grpc++ p3protolib)
-#target_link_libraries(serverB Threads::Threads gRPC::grpc++ p3protolib)
+target_link_libraries(serverC Threads::Threads gRPC::grpc++ p3protolib)
 
 
 add_dependencies(client p3protolib)
 add_dependencies(server p3protolib)
+add_dependencies(serverC p3protolib)
 target_link_libraries(health_client Threads::Threads gRPC::grpc++ p3protolib)
 
 add_dependencies(client p3protolib)
