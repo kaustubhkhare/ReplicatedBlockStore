@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    std::string ip{"0.0.0.0"}, port{"60051"};
+    std::string ip{"0.0.0.0"}, port{std::to_string(constants::PRIMARY_PORT)};
     for(int i = 1; i < argc - 1; ++i) {
         if(!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
