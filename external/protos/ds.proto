@@ -31,9 +31,6 @@ message AckResponse {
 
 message HBRequest {
   bool is_primary = 1;
-
-message HBRequest {
-  bool is_primary = 1;
 }
 
 message HBResponse {
