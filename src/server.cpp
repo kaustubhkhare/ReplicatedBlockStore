@@ -48,7 +48,7 @@ private:
     std::unordered_map<int, Info*> mem_data;
     std::mutex reintegration_lock;
 //    std::vector<std::future<Status>> pending_futures;
-    std::vector<std::mutex> per_block_locks(constants::TOTAL_BLOCKS);
+    std::vector<std::mutex> per_block_locks;
 public:
     void create_file(const std::string filename) {
         std::fstream stream;
@@ -103,7 +103,8 @@ public:
     explicit gRPCServiceImpl(std::shared_ptr<Channel> channel,
                              const std::string filename, bool primary = true) :
             stub_(gRPCService::NewStub(channel)) {
-
+        std::vector<std::mutex> new_locks(constants::BLOCK_SIZE);
+        per_block_locks.swap(new_locks);
         current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
         this->filename = filename;
         create_file(filename);
