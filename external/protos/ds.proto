@@ -29,6 +29,16 @@ message AckResponse {
     bool done = 1;
 }
 
+message ServerDiscoveryResponse {
+  repeated string hosts = 1;
+  int32 primary = 2;
+  int32 secondary = 3;
+}
+
+message ServerDiscoveryRequest {
+  bool is_initial = 1;
+}
+
 message HBRequest {
   bool is_primary = 1;
 }
@@ -43,6 +53,10 @@ message ReintegrationResponse {
     repeated int32 data_lengths = 3;
 }
 message ReintegrationRequest {
+}
+
+service LBService {
+  rpc get_servers(ServerDiscoveryRequest) returns (ServerDiscoveryResponse) {}
 }
 
 service gRPCService {
