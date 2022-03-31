@@ -364,19 +364,6 @@ public:
         return Status::OK;
     }
 
-    Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
-                   ds::AckResponse *ackResponse) {
-        if (current_server_state_ == ServerState::BACKUP) {
-            LOG_DEBUG_MSG("Starting backup server write");
-            BlockState state = BlockState::LOCKED;
-            Info info = {state, writeRequest->data_length(), writeRequest->data()};
-            temp_data[(int) writeRequest->address()] = &info;
-        } else {
-            std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
-        }
-        return Status::OK;
-    }
-
     Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
                     ds::AckResponse *ackResponse) {
         LOG_DEBUG_MSG("calling commit on backup");
