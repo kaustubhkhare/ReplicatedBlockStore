@@ -59,20 +59,19 @@ public:
 
         LOG_DEBUG_MSG("Sending read to server");
         Status status = p_stub_->c_read(&context, readRequest, &readResponse);
-        LOG_DEBUG_MSG("Read from server" + readResponse.data());
-
-        if (!status.ok()) {
-            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(), " Error: ", status.error_message());
-            return "ERROR";
-        }
+        LOG_DEBUG_MSG("back from server");
+//        if (!status.ok()) {
+//            return -ENONET;
+//        }
+//        if (readResponse.ret() < 0) {
+//            return readResponse.ret();
+//        }
         return readResponse.data();
     }
 
 
     int write(int address, int length, const char* wr_buffer) {
         LOG_DEBUG_MSG("Starting client write");
-        ClientContext context;
-        ds::WriteResponse writeResponse;
         ds::WriteRequest writeRequest;
         writeRequest.set_address(address);
         writeRequest.set_data_length(length);
