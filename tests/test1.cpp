@@ -1,6 +1,8 @@
 #include "zipf.h"
 #include "test_helper.h"
+#include <type_traits>
 #include <iostream>
+#include <cassert>
 
 struct ClientInterface {
     std::string p_read(int addr) {
@@ -26,14 +28,15 @@ const std::vector<double> ALIGNED_OPS_RATIO = {1, 0.5};
 enum class Distribution { ZIPF, UNIF };
 
 template <class T, class... Ts>
-std::string make_comma_sep(T&& t, Ts&&.. ts) {
+std::string make_comma_sep(T&& t, Ts&&... ts) {
+    using Ty = std::decay_t<std::remove_reference_t<std::remove_cv_t<T>>>;
     std::string s;
-    if constexpr(std::is_arithmetic_v<T>) {
+    if constexpr(std::is_arithmetic_v<Ty>) {
         s = std::to_string(t);
-    } else if constexpr(std::is_same_v<T, const char*>) {
+    } else if constexpr(std::is_same_v<Ty, const char*>) {
         s = std::string(t);
     } else {
-        static_assert(false, "unknown type T");
+        assert(0);
     }
     s += ", ";
     if constexpr (sizeof...(Ts) > 0)
