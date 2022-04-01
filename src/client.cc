@@ -65,6 +65,7 @@ public:
         readRequest.set_data_length(length);
         readRequest.set_address(address);
 
+        // TODO : secondary mayb dead, check this
         LOG_DEBUG_MSG("Sending read to server ", servers[secondary_idx]);
         Status status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse);
         LOG_DEBUG_MSG("Read from server" + readResponse.data());
@@ -97,14 +98,10 @@ public:
             discover_servers(false);
             return ENONET;
         }
-//        if (writeResponse.ret() < 0) {
-//            return writeResponse.ret();
-//        }
         return writeResponse.bytes_written();
     }
 
     void discover_servers(bool initialization) {
-
         LOG_DEBUG_MSG("Starting discovery with initialization ", initialization);
         ClientContext context;
         ds::ServerDiscoveryResponse response;
@@ -121,7 +118,7 @@ public:
                 for (int i = 0; i < response.hosts_size(); i++) {
                     servers.push_back(response.hosts(i));
                     server_stubs_.push_back(gRPCService::NewStub(grpc::CreateChannel(servers[i],
-                                                                                     grpc::InsecureChannelCredentials())));
+                        grpc::InsecureChannelCredentials())));
                 }
             }
             primary_idx = response.primary();
@@ -129,10 +126,10 @@ public:
             lease_start = response.lease_start();
             lease_duration = response.lease_duration();
 
-            server_stubs_[primary_idx] = gRPCService::NewStub(grpc::CreateChannel(servers[primary_idx],
-                                                                      grpc::InsecureChannelCredentials()));
-            server_stubs_[secondary_idx] = gRPCService::NewStub(grpc::CreateChannel(servers[secondary_idx],
-                                                                                  grpc::InsecureChannelCredentials()));
+//            server_stubs_[primary_idx] = gRPCService::NewStub(
+//                    grpc::CreateChannel(servers[primary_idx], grpc::InsecureChannelCredentials()));
+//            server_stubs_[secondary_idx] = gRPCService::NewStub(
+//                    grpc::CreateChannel(servers[secondary_idx], grpc::InsecureChannelCredentials()));
 
             LOG_DEBUG_MSG("Server discovery completed. Primary=", servers[primary_idx], " Secondary=", servers[secondary_idx]);
         }
@@ -141,13 +138,13 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    if(argc < 5) {
-        printf("Usage : ./client -ip <ip> -port <port>\n");
-        return 0;
-    }
+//    if (argc < 5) {
+//        printf("Usage : ./client -ip <ip> -port <port>\n");
+//        return 0;
+//    }
 
     std::string ip{"0.0.0.0"}, port{"60051"};
-    for(int i = 1; i < argc - 1; ++i) {
+    for (int i = 1; i < argc - 1; ++i) {
         if(!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
         } else if(!strcmp(argv[i], "-port")) {
@@ -193,11 +190,11 @@ int main(int argc, char *argv[]) {
     }
 //    std::string buf(10, 'b');
 //    int v = client.write(1000, buf.length(), buf.c_str());
-//    std::string bufRead = client.read(0);
+//    std::string bufRead = client.read(1000, 10);
 ////    std::cout << bufRead[0] << bufRead[1]<<"\n";
-//    std::cout << bufRead << "\n";
-//    bufRead = client.read(5);
+//    std::cout << "Writing" << buf << "\n";
+////    bufRead = client.read();
 ////    std::cout << bufRead[0] << bufRead[1]<<"\n";
-//    std::cout << bufRead << "\n";
+//    std::cout << "Reading" << bufRead << "\n";
     return 0;
 }

@@ -70,7 +70,6 @@ public:
         outfile.seekp(address);
         outfile.write(buf, size);
         outfile.close();
-
         return size;
     }
 
@@ -81,7 +80,6 @@ public:
         infile.seekg(address);
         infile.read(buf, size);
         infile.close();
-
         return size;
     }
 
@@ -112,10 +110,9 @@ public:
         create_file(filename);
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
         backup_state = BackupState::ALIVE;
-        current_server_state_ = primary ? ServerState::PRIMARY : ServerState::BACKUP;
-        if (!primary) {
-            secondary_reintegration();
-        }
+//        if (!primary) {
+//            secondary_reintegration();
+//        }
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
@@ -139,9 +136,9 @@ public:
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
-        if (current_server_state_ == ServerState::BACKUP) {
-            wait_before_read(readRequest);
-        }
+//        if (current_server_state_ == ServerState::BACKUP) {
+//            wait_before_read(readRequest);
+//        }
         LOG_DEBUG_MSG("reading from primary");
         int buf_size = readRequest->data_length();
         auto buf = std::make_unique<char[]>(buf_size);
@@ -301,20 +298,21 @@ public:
                 auto& pf = pending_futures.front();
                 if (pf.valid()) {
                     const auto addr = pf.get();
+                    if (addr.has_value())
+                        temp_data.erase(addr.value());
                     pending_futures.pop_front();
                 }
             }
+//            get_write_locks(writeRequest);
 
-            get_write_locks(writeRequest);
-
-            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
-            Info info = {state, writeRequest->data_length(), writeRequest->data()};
+//            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
+            Info info = {BlockState::DISK, writeRequest->data_length(), writeRequest->data()};
             // TODO: make map thread safe
             temp_data[(int)writeRequest->address()] = &info;
             if (backup_state == BackupState::ALIVE) {
                 ClientContext context;
                 ds::AckResponse ackResponse;
-                LOG_DEBUG_MSG("sending read to backup");
+                LOG_DEBUG_MSG("sending write to backup");
                 Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
                 LOG_DEBUG_MSG("back from backup");
             }
@@ -330,7 +328,6 @@ public:
                 ClientContext context;
                 ds::CommitRequest commitRequest;
                 commitRequest.set_address(writeRequest->address());
-
                 const int waddr = writeRequest->address();
 
                 fut_t f = std::async(std::launch::async,
@@ -346,10 +343,9 @@ public:
                 pending_futures.push_back(std::move(f));
                 LOG_DEBUG_MSG("committed to backup");
             }
-            release_write_locks(writeRequest);
+//            release_write_locks(writeRequest);
             return Status::OK;
         }
-        LOG_DEBUG_MSG("Starting backup server write");
     }
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::AckResponse *ackResponse) {
@@ -359,7 +355,7 @@ public:
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int) writeRequest->address()] = &info;
         } else {
-            std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
+            LOG_DEBUG_MSG("calling s_write at backup?");
         }
         return Status::OK;
     }
@@ -381,10 +377,10 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    if(argc < 7) {
-        printf("Usage : ./server -ip <ip> -port <port> -datafile <datafile>\n");
-        return 0;
-    }
+//    if(argc < 7) {
+//        printf("Usage : ./server -ip <ip> -port <port> -datafile <datafile>\n");
+//        return 0;
+//    }
 
     std::string ip{"0.0.0.0"}, port{std::to_string(constants::PRIMARY_PORT)}, datafile{"data"};
     for(int i = 1; i < argc - 1; ++i) {
@@ -399,7 +395,7 @@ int main(int argc, char *argv[]) {
 
     LOG_DEBUG_MSG("Starting primary");
     std::string server_address(ip + ":" + port);
-    gRPCServiceImpl service(grpc::CreateChannel("localhost:" + std::to_string(constants::BACKUP_PORT),
+    gRPCServiceImpl service(grpc::CreateChannel("localhost:" + constants::BACKUP_PORT,
         grpc::InsecureChannelCredentials()), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
