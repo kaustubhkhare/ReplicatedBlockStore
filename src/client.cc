@@ -15,6 +15,7 @@
 #include <memory>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -38,6 +39,8 @@ private:
     std::vector<std::string> servers;
     int primary_idx;
     int secondary_idx;
+    long double lease_start;
+    long double lease_duration;
 
     static std::string hash_str(const char* src) {
         auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
@@ -54,27 +57,52 @@ public:
     GRPCClient(std::shared_ptr<Channel> lb_channel) : lb_stub_(LBService::NewStub(lb_channel)) {}
 
     std::string read(int address, int length) {
-        discover_servers(false);
+        if (time_monotonic() > (lease_start + lease_duration))
+            discover_servers(false);
         LOG_DEBUG_MSG("Starting read");
-        ds::ReadResponse readResponse;
+        ds::ReadResponse readResponse_p;
+        ds::ReadResponse readResponse_b;
         ClientContext context;
         ds::ReadRequest readRequest;
         readRequest.set_data_length(length);
         readRequest.set_address(address);
+        Status status;
 
-        LOG_DEBUG_MSG("Sending read to server ", servers[secondary_idx]);
-        Status status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse);
-        LOG_DEBUG_MSG("Read from server" + readResponse.data());
+        int server = rand() % 2;
+        if (secondary_idx != -1) {
+            if (server == 1) {
+                ClientContext context;
+                LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
+                status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
+                LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
+            } else {
+                ClientContext context2;
+
+                LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+                status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
+                LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+            }
+            if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
+                LOG_DEBUG_MSG("primary backup data not matching");
+             }
+        } else {
+            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+            status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
+            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+        }
 
         if (!status.ok()) {
-            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(),
+                          " Error: ", status.error_message());
+            discover_servers(false);
             return "ERROR";
         }
-        return readResponse.data();
+        return readResponse_p.data();
     }
 
     int write(int address, int length, const char* wr_buffer) {
-        discover_servers(false);
+        if (time_monotonic() > (lease_start + lease_duration))
+            discover_servers(false);
         LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
@@ -89,16 +117,13 @@ public:
 
         if (!status.ok()){
             LOG_DEBUG_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            discover_servers(false);
             return ENONET;
         }
-//        if (writeResponse.ret() < 0) {
-//            return writeResponse.ret();
-//        }
         return writeResponse.bytes_written();
     }
 
     void discover_servers(bool initialization) {
-
         LOG_DEBUG_MSG("Starting discovery with initialization ", initialization);
         ClientContext context;
         ds::ServerDiscoveryResponse response;
@@ -115,15 +140,18 @@ public:
                 for (int i = 0; i < response.hosts_size(); i++) {
                     servers.push_back(response.hosts(i));
                     server_stubs_.push_back(gRPCService::NewStub(grpc::CreateChannel(servers[i],
-                                                                                     grpc::InsecureChannelCredentials())));
+                        grpc::InsecureChannelCredentials())));
                 }
             }
             primary_idx = response.primary();
             secondary_idx = response.secondary();
-            server_stubs_[primary_idx] = gRPCService::NewStub(grpc::CreateChannel(servers[primary_idx],
-                                                                      grpc::InsecureChannelCredentials()));
-            server_stubs_[secondary_idx] = gRPCService::NewStub(grpc::CreateChannel(servers[secondary_idx],
-                                                                                  grpc::InsecureChannelCredentials()));
+            lease_start = response.lease_start();
+            lease_duration = response.lease_duration();
+
+//            server_stubs_[primary_idx] = gRPCService::NewStub(
+//                    grpc::CreateChannel(servers[primary_idx], grpc::InsecureChannelCredentials()));
+//            server_stubs_[secondary_idx] = gRPCService::NewStub(
+//                    grpc::CreateChannel(servers[secondary_idx], grpc::InsecureChannelCredentials()));
 
             LOG_DEBUG_MSG("Server discovery completed. Primary=", servers[primary_idx], " Secondary=", servers[secondary_idx]);
         }
@@ -132,13 +160,14 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    if(argc < 5) {
-        printf("Usage : ./client -ip <ip> -port <port>\n");
-        return 0;
-    }
+//    if (argc < 5) {
+//        printf("Usage : ./client -ip <ip> -port <port>\n");
+//        return 0;
+//    }
+
 
     std::string ip{"0.0.0.0"}, port{"60051"};
-    for(int i = 1; i < argc - 1; ++i) {
+    for (int i = 1; i < argc - 1; ++i) {
         if(!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
         } else if(!strcmp(argv[i], "-port")) {
@@ -184,11 +213,11 @@ int main(int argc, char *argv[]) {
     }
 //    std::string buf(10, 'b');
 //    int v = client.write(1000, buf.length(), buf.c_str());
-//    std::string bufRead = client.read(0);
+//    std::string bufRead = client.read(1000, 10);
 ////    std::cout << bufRead[0] << bufRead[1]<<"\n";
-//    std::cout << bufRead << "\n";
-//    bufRead = client.read(5);
+//    std::cout << "Writing" << buf << "\n";
+////    bufRead = client.read();
 ////    std::cout << bufRead[0] << bufRead[1]<<"\n";
-//    std::cout << bufRead << "\n";
+//    std::cout << "Reading" << bufRead << "\n";
     return 0;
 }

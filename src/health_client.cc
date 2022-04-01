@@ -48,21 +48,13 @@ private:
     std::atomic<int> primary_idx;
     std::atomic<int> secondary_idx;
 
-    static std::string hash_str(const char* src) {
-        auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
-        SHA256(reinterpret_cast<const unsigned char*>(src), strlen(src),
-               digest.get());
-        std::stringstream ss;
-        for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-            ss << std::hex << std::setw(2) << std::setfill('0')
-               << static_cast<int>(digest[i]);
-        }
-        return ss.str();
-    }
 public:
     LBServiceImpl(std::vector<std::shared_ptr<Channel>> channels, std::vector<std::string> t) {
         targets = t;
-        primary_idx.store(-1);
+        primary_idx.store(0);
+        secondary_idx.store(1);
+        available_hosts.insert(0);
+        available_hosts.insert(1);
         for (auto channel: channels)
             server_stubs_.emplace_back(gRPCService::NewStub(channel));
     }
@@ -92,11 +84,17 @@ public:
                     dead_hosts.insert(i);
                     if (primary_idx.load() == i)
                         assign_new_primary();
+                    secondary_idx.store(-1);
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else {
+//                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
-                    if (dead_hosts.count(i) > 0)
+                    if (dead_hosts.count(i) > 0) {
                         dead_hosts.erase(i);
+                        secondary_idx.store(i);
+                    }
+
+                    // shouldn't reach below
                     if (primary_idx.load() == -1)
                         assign_new_primary();
 //                    LOG_DEBUG_MSG("Server ", targets[i], " is up.");
@@ -114,9 +112,11 @@ public:
                 response->add_hosts(target);
         }
 
-        assign_new_secondary();
+//        assign_new_secondary();
         response->set_primary(primary_idx.load());
         response->set_secondary(secondary_idx.load());
+        response->set_lease_start(time_monotonic());
+        response->set_lease_duration(2e9);
 
         return Status::OK;
     }
@@ -124,22 +124,22 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-
-    if(argc < 5) {
-        printf("Usage : ./health_client -ip <ip> -port <port>\n");
-        return 0;
-    }
+//    if (argc < 5) {
+//        printf("Usage : ./health_client -ip <ip> -port <port>\n");
+//        return 0;
+//    }
 
     std::string ip{"0.0.0.0"}, port{"60051"};
-    for(int i = 1; i < argc - 1; ++i) {
-        if(!strcmp(argv[i], "-ip")) {
+    for (int i = 1; i < argc - 1; ++i) {
+        if (!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
         } else if(!strcmp(argv[i], "-port")) {
             port = std::string{argv[i+1]};
         }
     }
     std::string server_address(ip + ":" + port);
-    std::vector<std::string> targets {"localhost:60052", "localhost:60053"};
+    std::vector<std::string> targets {"0.0.0.0:" + std::to_string(constants::PRIMARY_PORT),
+                                      "0.0.0.0:" + std::to_string(constants::BACKUP_PORT)};
     std::vector<std::shared_ptr<::grpc::Channel>> channels {
         grpc::CreateChannel(targets[0], grpc::InsecureChannelCredentials()),
         grpc::CreateChannel(targets[1], grpc::InsecureChannelCredentials())

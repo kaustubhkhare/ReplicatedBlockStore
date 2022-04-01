@@ -50,39 +50,32 @@ private:
     std::deque<fut_t> pending_futures;
     std::mutex reintegration_lock;
     std::vector<std::mutex> per_block_locks;
-
+    std::fstream file;
+    int fd;
 public:
     void create_file(const std::string filename) {
-        std::fstream stream;
-        stream.open(filename, std::fstream::in | std::fstream::out | std::fstream::app);
-
-        if (!stream.is_open()) {
-            std::cout << "File doesn't exist. Creating file.";
-            stream.open(filename,  std::fstream::in | std::fstream::out | std::fstream::trunc);
-            stream.close();
+        fd = ::open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
+        if (fd == -1) {
+            LOG_ERR_MSG("unable to open fd for: ", filename);
         }
     }
 
     int write(const char* buf, int address, int size) {
-        std::fstream outfile;
-        LOG_DEBUG_MSG("Opening file ", filename, " for writing");
-        outfile.open(filename);
-        outfile.seekp(address);
-        outfile.write(buf, size);
-        outfile.close();
-
-        return size;
+        LOG_DEBUG_MSG("writing @", address, ": ", std::string(buf, size));
+        const int written_b = ::pwrite(fd, buf, size, address);
+        if (written_b == -1) {
+            LOG_ERR_MSG("write failed @ ", address, " ", errno);
+        }
+        return written_b;
     }
 
     int read(char* buf, int address, int size) {
-        std::ifstream infile;
-        LOG_DEBUG_MSG("Opening file ", filename, " for reading");
-        infile.open(filename, std::ios::binary);
-        infile.seekg(address);
-        infile.read(buf, size);
-        infile.close();
-
-        return size;
+        const int read_b = ::pread(fd, buf, size, address);
+        if (read_b == -1) {
+            LOG_ERR_MSG("read failed @ ", address, " ", errno);
+        }
+        LOG_DEBUG_MSG("reading @", address, ":", size, " -> ", std::string(buf, read_b));
+        return read_b;
     }
 
     auto get_server_state() const {
@@ -102,8 +95,8 @@ public:
         LOG_INFO_MSG(" -> BACKUP");
     }
 
-    explicit gRPCServiceImpl(std::shared_ptr<Channel> channel,
-                             const std::string filename, bool primary = true) :
+    explicit gRPCServiceImpl(
+            std::shared_ptr<Channel> channel, const std::string filename, bool primary = true) :
             stub_(gRPCService::NewStub(channel)) {
         std::vector<std::mutex> new_locks(constants::BLOCK_SIZE);
         per_block_locks.swap(new_locks);
@@ -112,46 +105,50 @@ public:
         create_file(filename);
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
         backup_state = BackupState::ALIVE;
-        current_server_state_ = primary ? ServerState::PRIMARY : ServerState::BACKUP;
-        if (!primary) {
-            secondary_reintegration();
-        }
+//        if (!primary) {
+//            secondary_reintegration();
+//        }
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
-        ASS(current_server_state_ == ServerState::PRIMARY, "waiting for reads in primary shouldn't happen");
-        std::vector<int> blocks = get_blocks_involved(readRequest->address(), constants::BLOCK_SIZE);
-        // change this to get signaled when the entry is removed from the map (write to that block is complete)
+        ASS(current_server_state_ == ServerState::PRIMARY,
+            "waiting for reads in primary shouldn't happen");
+        std::vector<int> blocks = get_blocks_involved(
+                readRequest->address(), constants::BLOCK_SIZE);
+        // change this to get signaled when the entry is removed
+        // from the map (write to that block is complete)
         bool can_read_all = false;
         while(!can_read_all) {
             can_read_all = true;
             for (const int &b: blocks) {
-                if (temp_data.count(b) == 0 && temp_data[b]->state == BlockState::LOCKED) {
+                if (temp_data.count(b) && temp_data[b]->state == BlockState::LOCKED) {
                     can_read_all = false;
                     break;
                 }
             }
             if (!can_read_all) {
-                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
+                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
             }
         }
     }
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
-        if (current_server_state_ == ServerState::BACKUP) {
-            wait_before_read(readRequest);
-        }
+//        if (current_server_state_ == ServerState::BACKUP) {
+//            wait_before_read(readRequest);
+//        }
         LOG_DEBUG_MSG("reading from primary");
         int buf_size = readRequest->data_length();
         auto buf = std::make_unique<char[]>(buf_size);
+        ::bzero(buf.get(), buf_size);
         int bytes_read = read(buf.get(), readRequest->address(), buf_size);
-        LOG_DEBUG_MSG(buf.get(), " bytes read");
-        readResponse->set_data(buf.get());
+        LOG_DEBUG_MSG(std::string(buf.get(), bytes_read), " bytes read");
+        readResponse->set_data(buf.get(), bytes_read);
         return Status::OK;
     }
 
-    Status hb_check(ServerContext *context, const ds::HBRequest *request, ds::HBResponse *response) {
+    Status hb_check(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
         if (request->is_primary()) {
 //            LOG_DEBUG_MSG("I'm primary");
         } else {
@@ -160,11 +157,13 @@ public:
 
         return Status::OK;
     }
-    // Returns the block indices for the address and data_length. In this case return vector size is at most 2
+
+    // Returns the block indices for the address and data_length.
+    // In this case return vector size is at most 2
     std::vector<int> get_blocks_involved(const int address, const int data_length) {
         int first_block = address / constants::BLOCK_SIZE;
-        int end_of_first_block = first_block + constants::BLOCK_SIZE - 1;
-        int first_block_size_left = end_of_first_block - first_block * constants::BLOCK_SIZE;
+        int end_of_first_block = (first_block + 1) * constants::BLOCK_SIZE - 1;
+        int first_block_size_left = end_of_first_block - address + 1;
         std::vector<int> blocks_involved;
         blocks_involved.push_back(first_block);
         if (data_length > first_block_size_left) {
@@ -175,7 +174,8 @@ public:
 
     void get_write_locks(const ds::WriteRequest *writeRequest) {
         reintegration_lock.lock();
-        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
+        std::vector<int> blocks = get_blocks_involved(
+                writeRequest->address(), writeRequest->data_length());
         if (blocks.size() == 1) {
             per_block_locks[blocks[0]].lock();
         } else {
@@ -188,9 +188,12 @@ public:
 
             while(!first_block_lock_acquired || !second_block_lock_acquired) {
                 // try acquiring the locks
-                first_block_lock_acquired = !first_block_lock_acquired && first_block_lock.try_lock();
-                second_block_lock_acquired = !first_block_lock_acquired && second_block_lock.try_lock();
-                // if both obtained, will get out of loop, if not both obtained, release obtained locks
+                first_block_lock_acquired =
+                        !first_block_lock_acquired && first_block_lock.try_lock();
+                second_block_lock_acquired =
+                        !first_block_lock_acquired && second_block_lock.try_lock();
+                // if both obtained, will get out of loop, if not both obtained,
+                // release obtained locks
                 if (!first_block_lock_acquired || !second_block_lock_acquired) {
                     if (first_block_lock_acquired) {
                         first_block_lock.unlock();
@@ -204,17 +207,19 @@ public:
     }
 
     void release_write_locks(const ds::WriteRequest *writeRequest) {
-        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
+        std::vector<int> blocks = get_blocks_involved(
+                writeRequest->address(), writeRequest->data_length());
         for (const int &block: blocks) {
             per_block_locks[block].unlock();
         }
         reintegration_lock.unlock();
     }
 
-    Status p_reintegration(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
-                         ds::ReintegrationResponse* reintegrationResponse) {
-
-        assert_msg(current_server_state_ != ServerState::PRIMARY, "Reintegration called on backup");
+    Status p_reintegration(ServerContext *context,
+                           const ds::ReintegrationRequest* reintegrationRequest,
+                           ds::ReintegrationResponse* reintegrationResponse) {
+        assert_msg(current_server_state_ != ServerState::PRIMARY,
+                   "Reintegration called on backup");
         this->backup_state = BackupState::REINTEGRATION;
         // return the entries in temp_data that are in disk state.
         // opt_todo: stream the entries instead of returning at once
@@ -232,14 +237,13 @@ public:
         return Status::OK;
     }
 
-    Status p_reintegration_phase_two(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
-                         ds::ReintegrationResponse* reintegrationResponse) {
-
-        assert_msg(current_server_state_ != ServerState::PRIMARY, "Reintegration called on backup");
-
+    Status p_reintegration_phase_two(ServerContext *context,
+                                     const ds::ReintegrationRequest* reintegrationRequest,
+                                     ds::ReintegrationResponse* reintegrationResponse) {
+        assert_msg(current_server_state_ != ServerState::PRIMARY,
+                   "Reintegration called on backup");
         // pause all writes for now!
         reintegration_lock.lock();
-
         // return the entries in temp_data that are in MEMORY state.
         // opt_todo: stream the entries instead of returning at once
         for (auto it: temp_data) {
@@ -253,7 +257,8 @@ public:
         return Status::OK;
     }
 
-    Status p_reintegration_complete(ServerContext *context, const ds::ReintegrationRequest* reintegrationRequest,
+    Status p_reintegration_complete(ServerContext *context,
+                                    const ds::ReintegrationRequest* reintegrationRequest,
                                     ds::ReintegrationResponse* reintegrationResponse) {
         this->backup_state = BackupState::ALIVE;
         reintegration_lock.unlock();
@@ -264,7 +269,8 @@ public:
         ClientContext context;
         ds::ReintegrationRequest reintegration_request;
         ds::ReintegrationResponse reintegration_response;
-        Status status = stub_->p_reintegration(&context, reintegration_request, &reintegration_response);
+        Status status = stub_->p_reintegration(
+                &context, reintegration_request, &reintegration_response);
 
         // write all missing writes in the backup
         for (int i = 0; i < reintegration_response.data_size(); i++) {
@@ -277,7 +283,8 @@ public:
         reintegration_response.clear_data();
         reintegration_response.clear_data_lengths();
         reintegration_response.clear_addresses();
-        status = stub_->p_reintegration_phase_two(&context, reintegration_request, &reintegration_response);
+        status = stub_->p_reintegration_phase_two(
+                &context, reintegration_request, &reintegration_response);
 
         for (int i = 0; i < reintegration_response.data_size(); i++) {
             write(reintegration_response.data(i).c_str(),
@@ -289,8 +296,8 @@ public:
         reintegration_response.clear_data();
         reintegration_response.clear_data_lengths();
         reintegration_response.clear_addresses();
-        status = stub_->p_reintegration_complete(&context, reintegration_request, &reintegration_response);
-
+        status = stub_->p_reintegration_complete(
+            &context, reintegration_request, &reintegration_response);
     }
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
@@ -298,40 +305,41 @@ public:
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
             while (pending_futures.size()) {
+                LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
                 auto& pf = pending_futures.front();
                 if (pf.valid()) {
                     const auto addr = pf.get();
+                    if (addr.has_value())
+                        temp_data.erase(addr.value());
                     pending_futures.pop_front();
                 }
             }
-
-            get_write_locks(writeRequest);
-
-            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
-            Info info = {state, writeRequest->data_length(), writeRequest->data()};
+//            get_write_locks(writeRequest);
+//            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
+            Info info = {BlockState::DISK, writeRequest->data_length(), writeRequest->data()};
             // TODO: make map thread safe
             temp_data[(int)writeRequest->address()] = &info;
             if (backup_state == BackupState::ALIVE) {
                 ClientContext context;
                 ds::AckResponse ackResponse;
-                LOG_DEBUG_MSG("sending read to backup");
+                LOG_DEBUG_MSG("sending write to backup");
                 Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
                 LOG_DEBUG_MSG("back from backup");
             }
-            LOG_DEBUG_MSG("write from map to file");
-
+            LOG_DEBUG_MSG("write from map to file:", writeRequest->data());
             int flag = write(writeRequest->data().c_str(), writeRequest->address(), writeRequest->data_length());
-            if (flag == -1)
+            if (flag == -1) {
+                throw std::logic_error("unlock at backup!!");
                 return Status::CANCELLED;
+            }
             writeResponse->set_bytes_written(writeRequest->data_length());
 
             if (backup_state == BackupState::ALIVE) {
                 LOG_DEBUG_MSG("commit to backup");
                 ClientContext context;
                 ds::CommitRequest commitRequest;
-                commitRequest.set_address(writeRequest->address());
-
                 const int waddr = writeRequest->address();
+                commitRequest.set_address(waddr);
 
                 fut_t f = std::async(std::launch::async,
                     [&]() -> std::optional<int> {
@@ -343,14 +351,31 @@ public:
                             return waddr;
                         return std::nullopt;
                 });
-                pending_futures.push_back(std::move(f));
+                f.get();
+//                pending_futures.push_back(std::move(f));
+//                if (pending_futures.size() > 0) {
+//                    LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
+//                    auto& pf = pending_futures.front();
+//                    optional<int> I = pf.get();
+//                    if (I != std::nullopt){
+//
+//                    }
+//                    if (pf.valid())
+//                        LOG_DEBUG_MSG("future result ready");
+//                        const auto addr = pf.get();
+//                        LOG_DEBUG_MSG("address is ", addr);
+//                        if (addr.has_value())
+//                            temp_data.erase(addr.value());
+//                        pending_futures.pop_front();
+//                    }
+//                }
                 LOG_DEBUG_MSG("committed to backup");
             }
-            release_write_locks(writeRequest);
+//            release_write_locks(writeRequest);
             return Status::OK;
         }
-        LOG_DEBUG_MSG("Starting backup server write");
     }
+
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::AckResponse *ackResponse) {
         if (current_server_state_ == ServerState::BACKUP) {
@@ -359,15 +384,14 @@ public:
             Info info = {state, writeRequest->data_length(), writeRequest->data()};
             temp_data[(int) writeRequest->address()] = &info;
         } else {
-            std::cout << __LINE__ << "calling s_write at backup?\n" << std::flush;
+            LOG_DEBUG_MSG("calling s_write at primary whyyy?");
         }
         return Status::OK;
     }
 
     Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
-                    ds::AckResponse *ackResponse) {
+        ds::AckResponse *ackResponse) {
         LOG_DEBUG_MSG("calling commit on backup");
-        BlockState diskState = BlockState::DISK;
         Info *info = temp_data[(int)commitRequest->address()];
         write(info->data.c_str(), commitRequest->address(), info->length);
         temp_data.erase((int)commitRequest->address());
@@ -376,17 +400,17 @@ public:
 
     ~gRPCServiceImpl() {
         LOG_DEBUG_MSG("Calling destructor");
+        ::close(fd);
     }
-
 };
 
 int main(int argc, char *argv[]) {
-    if(argc < 7) {
-        printf("Usage : ./server -ip <ip> -port <port> -datafile <datafile>\n");
-        return 0;
-    }
+//    if(argc < 7) {
+//        printf("Usage : ./server -ip <ip> -port <port> -datafile <datafile>\n");
+//        return 0;
+//    }
 
-    std::string ip{"0.0.0.0"}, port{"60052"}, datafile{"data"};
+    std::string ip{"0.0.0.0"}, port{std::to_string(constants::PRIMARY_PORT)}, datafile{"data"};
     for(int i = 1; i < argc - 1; ++i) {
         if(!strcmp(argv[i], "-ip")) {
             ip = std::string{argv[i+1]};
@@ -399,7 +423,7 @@ int main(int argc, char *argv[]) {
 
     LOG_DEBUG_MSG("Starting primary");
     std::string server_address(ip + ":" + port);
-    gRPCServiceImpl service(grpc::CreateChannel("localhost:60053",
+    gRPCServiceImpl service(grpc::CreateChannel("localhost:" + constants::BACKUP_PORT,
         grpc::InsecureChannelCredentials()), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
