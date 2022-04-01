@@ -15,6 +15,7 @@
 #include <memory>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -59,23 +60,40 @@ public:
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
         LOG_DEBUG_MSG("Starting read");
-        ds::ReadResponse readResponse;
+        ds::ReadResponse readResponse_p;
+        ds::ReadResponse readResponse_b;
         ClientContext context;
         ds::ReadRequest readRequest;
         readRequest.set_data_length(length);
         readRequest.set_address(address);
+        Status status;
 
-        // TODO : secondary mayb dead, check this
-        LOG_DEBUG_MSG("Sending read to server ", servers[secondary_idx]);
-        Status status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse);
-        LOG_DEBUG_MSG("Read from server" + readResponse.data());
+        int server = rand() % 2;
+        if (secondary_idx != -1) {
+//            if (server == 1) {
+                LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
+                status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
+                LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
+//            } else {
+                LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+                status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
+                LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+//            }
+            if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
+                LOG_DEBUG_MSG("primary backup data not matching");
+            }
+        } else {
+            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+            status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
+            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+        }
 
         if (!status.ok()) {
             LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(), " Error: ", status.error_message());
             discover_servers(false);
             return "ERROR";
         }
-        return readResponse.data();
+        return readResponse_p.data();
     }
 
     int write(int address, int length, const char* wr_buffer) {

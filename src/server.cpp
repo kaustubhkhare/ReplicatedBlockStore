@@ -50,51 +50,30 @@ private:
     std::deque<fut_t> pending_futures;
     std::mutex reintegration_lock;
     std::vector<std::mutex> per_block_locks;
-
     std::fstream file;
-//    std::ifstream file;
 
 public:
     void create_file(const std::string filename) {
-        std::fstream stream;
-        stream.open(filename, std::fstream::in | std::fstream::out | std::fstream::app);
+        file.open(filename, std::fstream::in | std::fstream::out | std::fstream::app);
 
-        if (!stream.is_open()) {
+        if (!file.is_open()) {
             std::cout << "File doesn't exist. Creating file.";
-            stream.open(filename,  std::fstream::in | std::fstream::out | std::fstream::trunc);
-            stream.close();
+            file.open(filename,  std::fstream::in | std::fstream::out | std::fstream::trunc);
+            file.close();
         }
     }
 
     int write(const char* buf, int address, int size) {
         LOG_DEBUG_MSG("Opening file ", filename, " for writing");
-
-//        outfile.open(filename);
-//        outfile.seekp(address);
-//        outfile.write(buf, size);
-//        outfile.close();
-
         file.seekp(address);
         file.write(buf, size);
-        file.flush();
-//        file.close();
         return size;
     }
 
     int read(char* buf, int address, int size) {
-
         LOG_DEBUG_MSG("Opening file ", filename, " for reading");
-
-//        infile.open(filename, std::ios::binary);
-//        infile.seekg(address);
-//        infile.read(buf, size);
-//        infile.close();
-
-
         file.seekg(address);
         file.read(buf, size);
-//        file.close();
-
         LOG_DEBUG_MSG("Read ", buf);
         return size;
     }
@@ -129,7 +108,7 @@ public:
 //        if (!primary) {
 //            secondary_reintegration();
 //        }
-        file.open(filename);
+//        file.open(filename);
 //        file.open(filename, std::ios::binary);
     }
 
@@ -390,6 +369,7 @@ public:
 
     ~gRPCServiceImpl() {
         LOG_DEBUG_MSG("Calling destructor");
+        file.close();
     }
 
 };
