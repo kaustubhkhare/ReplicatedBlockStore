@@ -4,6 +4,19 @@
 #include <iostream>
 #include <cassert>
 
+enum class Distribution { ZIPF, UNIF };
+
+struct TestTemplate {
+    std::string name;
+    struct AddrTemplate {
+        Distribution d;
+        size_t n;
+        float aligned_ratio;  
+    };
+    AddrTemplate reads, writes;
+    int rthreads, wthreads;
+};
+
 struct ClientInterface {
     std::string p_read(int addr) {
         std::cout << "[R] " << addr << '\n';
@@ -25,7 +38,6 @@ const std::vector<std::pair<int, int> > RW_THREADS
 const std::vector<int> NUM_OPS = {(int)5e3, (int)1e4, (int)3e4};
 const std::vector<double> ALIGNED_OPS_RATIO = {1, 0.5};
 
-enum class Distribution { ZIPF, UNIF };
 
 template <class T, class... Ts>
 std::string make_comma_sep(T&& t, Ts&&... ts) {
@@ -45,9 +57,6 @@ std::string make_comma_sep(T&& t, Ts&&... ts) {
 }
 
 int main() {
-//    const int ADDR_LIMIT = ;
-//    auto read_v = zipf.get(N_READ);
-//    auto write_v = unif.get(N_WRITE);
     ClientInterface client;
     for (auto aligned_ratio: ALIGNED_OPS_RATIO) {
         for (auto ops: NUM_OPS) {
@@ -62,9 +71,7 @@ int main() {
                 const auto read_v = get(zipf, n_read, aligned_ratio);
                 const auto write_v = get(zipf, n_read, aligned_ratio);
                 for (auto [rthread, wthread]: RW_THREADS) {
-                    const std::string test_name = "test, " + std::to_string(aligned_ratio) + ", "
-                            + std::to_string(ops) + ", " + std::to_string(rw_ratio) + ", " + std::to_string(rthread)
-                            + ", " + std::to_string(wthread);
+                    const auto test_name = make_comma_sep("test", aligned_ratio, ops, rw_ratio, rthread, wthread);
                     run_test(test_name, client, read_v, write_v, rthread, wthread, false);
                     client.reset();
                 }
@@ -72,6 +79,5 @@ int main() {
         }
     }
 
-//    run_test(client, read_v, write_v, 4, 2, false);
     return 0;
 }
