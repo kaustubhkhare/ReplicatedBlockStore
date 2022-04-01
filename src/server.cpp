@@ -51,6 +51,9 @@ private:
     std::mutex reintegration_lock;
     std::vector<std::mutex> per_block_locks;
 
+    std::fstream file;
+//    std::ifstream file;
+
 public:
     void create_file(const std::string filename) {
         std::fstream stream;
@@ -64,22 +67,35 @@ public:
     }
 
     int write(const char* buf, int address, int size) {
-        std::fstream outfile;
         LOG_DEBUG_MSG("Opening file ", filename, " for writing");
-        outfile.open(filename);
-        outfile.seekp(address);
-        outfile.write(buf, size);
-        outfile.close();
+
+//        outfile.open(filename);
+//        outfile.seekp(address);
+//        outfile.write(buf, size);
+//        outfile.close();
+
+        file.seekp(address);
+        file.write(buf, size);
+        file.flush();
+//        file.close();
         return size;
     }
 
     int read(char* buf, int address, int size) {
-        std::ifstream infile;
+
         LOG_DEBUG_MSG("Opening file ", filename, " for reading");
-        infile.open(filename, std::ios::binary);
-        infile.seekg(address);
-        infile.read(buf, size);
-        infile.close();
+
+//        infile.open(filename, std::ios::binary);
+//        infile.seekg(address);
+//        infile.read(buf, size);
+//        infile.close();
+
+
+        file.seekg(address);
+        file.read(buf, size);
+//        file.close();
+
+        LOG_DEBUG_MSG("Read ", buf);
         return size;
     }
 
@@ -113,6 +129,8 @@ public:
 //        if (!primary) {
 //            secondary_reintegration();
 //        }
+        file.open(filename);
+//        file.open(filename, std::ios::binary);
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
