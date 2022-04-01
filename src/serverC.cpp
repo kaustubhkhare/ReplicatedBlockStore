@@ -118,7 +118,7 @@ public:
         while(!can_read_all) {
             can_read_all = true;
             for (const int &b: blocks) {
-                if (temp_data.count(b) == 0 && temp_data[b]->state == BlockState::LOCKED) {
+                if (temp_data.count(b) && temp_data[b]->state == BlockState::LOCKED) {
                     can_read_all = false;
                     break;
                 }

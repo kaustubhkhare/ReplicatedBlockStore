@@ -51,31 +51,31 @@ private:
     std::mutex reintegration_lock;
     std::vector<std::mutex> per_block_locks;
     std::fstream file;
-
+    int fd;
 public:
     void create_file(const std::string filename) {
-        file.open(filename, std::fstream::in | std::fstream::out | std::fstream::app);
-
-        if (!file.is_open()) {
-            std::cout << "File doesn't exist. Creating file.";
-            file.open(filename,  std::fstream::in | std::fstream::out | std::fstream::trunc);
-            file.close();
+        fd = ::open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
+        if (fd == -1) {
+            LOG_ERR_MSG("unable to open fd for: ", filename);
         }
     }
 
     int write(const char* buf, int address, int size) {
-        LOG_DEBUG_MSG("Opening file ", filename, " for writing");
-        file.seekp(address);
-        file.write(buf, size);
-        return size;
+        LOG_DEBUG_MSG("writing @", address, ": ", std::string(buf, size));
+        const int written_b = ::pwrite(fd, buf, size, address);
+        if (written_b == -1) {
+            LOG_ERR_MSG("write failed @ ", address, " ", errno);
+        }
+        return written_b;
     }
 
     int read(char* buf, int address, int size) {
-        LOG_DEBUG_MSG("Opening file ", filename, " for reading");
-        file.seekg(address);
-        file.read(buf, size);
-        LOG_DEBUG_MSG("Read ", buf);
-        return size;
+        const int read_b = ::pread(fd, buf, size, address);
+        if (read_b == -1) {
+            LOG_ERR_MSG("read failed @ ", address, " ", errno);
+        }
+        LOG_DEBUG_MSG("reading @", address, ":", size, " -> ", std::string(buf, read_b));
+        return read_b;
     }
 
     auto get_server_state() const {
@@ -121,13 +121,14 @@ public:
         while(!can_read_all) {
             can_read_all = true;
             for (const int &b: blocks) {
-                if (temp_data.count(b) == 0 && temp_data[b]->state == BlockState::LOCKED) {
+                if (temp_data.count(b) && temp_data[b]->state == BlockState::LOCKED) {
                     can_read_all = false;
                     break;
                 }
             }
             if (!can_read_all) {
-                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
+                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
             }
         }
     }
@@ -140,9 +141,10 @@ public:
         LOG_DEBUG_MSG("reading from primary");
         int buf_size = readRequest->data_length();
         auto buf = std::make_unique<char[]>(buf_size);
+        ::bzero(buf.get(), buf_size);
         int bytes_read = read(buf.get(), readRequest->address(), buf_size);
-        LOG_DEBUG_MSG(buf.get(), " bytes read");
-        readResponse->set_data(buf.get());
+        LOG_DEBUG_MSG(std::string(buf.get(), bytes_read), " bytes read");
+        readResponse->set_data(buf.get(), bytes_read);
         return Status::OK;
     }
 
@@ -155,6 +157,7 @@ public:
 
         return Status::OK;
     }
+
     // Returns the block indices for the address and data_length.
     // In this case return vector size is at most 2
     std::vector<int> get_blocks_involved(const int address, const int data_length) {
@@ -302,7 +305,7 @@ public:
         if (current_server_state_ == ServerState::PRIMARY) {
             LOG_DEBUG_MSG("Starting primary server write");
             while (pending_futures.size()) {
-                LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
+                LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
                 auto& pf = pending_futures.front();
                 if (pf.valid()) {
                     const auto addr = pf.get();
@@ -323,10 +326,12 @@ public:
                 Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
                 LOG_DEBUG_MSG("back from backup");
             }
-            LOG_DEBUG_MSG("write from map to file");
+            LOG_DEBUG_MSG("write from map to file:", writeRequest->data());
             int flag = write(writeRequest->data().c_str(), writeRequest->address(), writeRequest->data_length());
-            if (flag == -1)
+            if (flag == -1) {
+                throw std::logic_error("unlock at backup!!");
                 return Status::CANCELLED;
+            }
             writeResponse->set_bytes_written(writeRequest->data_length());
 
             if (backup_state == BackupState::ALIVE) {
@@ -346,25 +351,31 @@ public:
                             return waddr;
                         return std::nullopt;
                 });
-                pending_futures.push_back(std::move(f));
-                while (pending_futures.size()) {
-                    LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
-                    auto& pf = pending_futures.front();
-                    if (pf.valid())
-                        LOG_DEBUG_MSG("future result ready");
-                        const auto addr = pf.get();
-                    LOG_DEBUG_MSG("address is ", addr);
-                        if (addr.has_value())
-                            temp_data.erase(addr.value());
-                        pending_futures.pop_front();
-                    }
-                }
+                f.get();
+//                pending_futures.push_back(std::move(f));
+//                if (pending_futures.size() > 0) {
+//                    LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
+//                    auto& pf = pending_futures.front();
+//                    optional<int> I = pf.get();
+//                    if (I != std::nullopt){
+//
+//                    }
+//                    if (pf.valid())
+//                        LOG_DEBUG_MSG("future result ready");
+//                        const auto addr = pf.get();
+//                        LOG_DEBUG_MSG("address is ", addr);
+//                        if (addr.has_value())
+//                            temp_data.erase(addr.value());
+//                        pending_futures.pop_front();
+//                    }
+//                }
                 LOG_DEBUG_MSG("committed to backup");
             }
 //            release_write_locks(writeRequest);
             return Status::OK;
         }
     }
+
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::AckResponse *ackResponse) {
         if (current_server_state_ == ServerState::BACKUP) {
@@ -389,7 +400,7 @@ public:
 
     ~gRPCServiceImpl() {
         LOG_DEBUG_MSG("Calling destructor");
-        file.close();
+        ::close(fd);
     }
 };
 
