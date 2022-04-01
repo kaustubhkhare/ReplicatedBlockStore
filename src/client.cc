@@ -89,7 +89,8 @@ public:
         }
 
         if (!status.ok()) {
-            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(),
+                          " Error: ", status.error_message());
             discover_servers(false);
             return "ERROR";
         }
