@@ -14,7 +14,7 @@ void run_test(C& client, const std::vector<int>& read_addr, const std::vector<in
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-                    client.p_read(read_addr[st]);
+                    client.read(read_addr[st]);
                     st++;
                 }
             });
@@ -30,7 +30,7 @@ void run_test(C& client, const std::vector<int>& read_addr, const std::vector<in
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-                    client.p_write(write_addr[st], 4, "AAA");
+                    client.write(write_addr[st], 4, "AAA");
                     st++;
                 }
             });

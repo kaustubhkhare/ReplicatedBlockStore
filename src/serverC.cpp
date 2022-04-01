@@ -50,31 +50,32 @@ private:
     std::deque<fut_t> pending_futures;
     std::mutex reintegration_lock;
     std::vector<std::mutex> per_block_locks;
-    std::fstream file;
+    int fd;
 
 public:
     void create_file(const std::string filename) {
-        file.open(filename, std::fstream::in | std::fstream::out | std::fstream::app);
-
-        if (!file.is_open()) {
-            std::cout << "File doesn't exist. Creating file.";
-            file.open(filename,  std::fstream::in | std::fstream::out | std::fstream::trunc);
-            file.close();
+        fd = ::open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
+        if (fd == -1) {
+            LOG_ERR_MSG("unable to open fd for: ", filename);
         }
     }
 
     int write(const char* buf, int address, int size) {
-        LOG_DEBUG_MSG("Opening file ", filename, " for writing");
-        file.seekp(address);
-        file.write(buf, size);
-        return size;
+        LOG_DEBUG_MSG("writing @", address, ": ", std::string(buf, size));
+        const int written_b = ::pwrite(fd, buf, size, address);
+        if (written_b == -1) {
+            LOG_ERR_MSG("write failed @ ", address, " ", errno);
+        }
+        return written_b;
     }
 
     int read(char* buf, int address, int size) {
-        LOG_DEBUG_MSG("Opening file ", filename, " for reading");
-        file.seekg(address);
-        file.read(buf, size);
-        return size;
+        const int read_b = ::pread(fd, buf, size, address);
+        if (read_b == -1) {
+            LOG_ERR_MSG("read failed @ ", address, " ", errno);
+        }
+        LOG_DEBUG_MSG("reading @", address, ":", size, " -> ", std::string(buf, read_b));
+        return read_b;
     }
 
     auto get_server_state() const {
@@ -370,7 +371,7 @@ public:
 
     ~gRPCServiceImpl() {
         LOG_DEBUG_MSG("Calling destructor");
-        file.close();
+        ::close(fd);
     }
 };
 

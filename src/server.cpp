@@ -173,46 +173,22 @@ public:
     }
 
     void get_write_locks(const ds::WriteRequest *writeRequest) {
-        reintegration_lock.lock();
-        std::vector<int> blocks = get_blocks_involved(
+        auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
-        if (blocks.size() == 1) {
-            per_block_locks[blocks[0]].lock();
-        } else {
-            // max size can only be 2, same thing can be generalized to n, no need in this case.
-            std::mutex& first_block_lock = per_block_locks[blocks[0]];
-            std::mutex& second_block_lock = per_block_locks[blocks[1]];
-
-            bool first_block_lock_acquired = false,
-                    second_block_lock_acquired = false;
-
-            while(!first_block_lock_acquired || !second_block_lock_acquired) {
-                // try acquiring the locks
-                first_block_lock_acquired =
-                        !first_block_lock_acquired && first_block_lock.try_lock();
-                second_block_lock_acquired =
-                        !first_block_lock_acquired && second_block_lock.try_lock();
-                // if both obtained, will get out of loop, if not both obtained,
-                // release obtained locks
-                if (!first_block_lock_acquired || !second_block_lock_acquired) {
-                    if (first_block_lock_acquired) {
-                        first_block_lock.unlock();
-                    }
-                    if (second_block_lock_acquired) {
-                        second_block_lock.unlock();
-                    }
-                }
-            }
+//        std::lock_guard _(reintegration_lock);
+        for (const int &block: blocks) {
+            per_block_locks[block].lock();
         }
+        LOG_DEBUG_MSG("locks acquired on ", blocks[0], " and ", blocks[1]);
     }
 
     void release_write_locks(const ds::WriteRequest *writeRequest) {
-        std::vector<int> blocks = get_blocks_involved(
+        auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
         for (const int &block: blocks) {
             per_block_locks[block].unlock();
         }
-        reintegration_lock.unlock();
+        LOG_DEBUG_MSG("locks released on ", blocks[0], " and ", blocks[1]);
     }
 
     Status p_reintegration(ServerContext *context,
@@ -302,78 +278,76 @@ public:
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
                    ds::WriteResponse *writeResponse) {
-        if (current_server_state_ == ServerState::PRIMARY) {
-            LOG_DEBUG_MSG("Starting primary server write");
-            while (pending_futures.size()) {
-                LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
+        if (current_server_state_ != ServerState::PRIMARY) {
+            return Status::CANCELLED;
+        }
+        LOG_DEBUG_MSG("Starting primary server write");
+        while (pending_futures.size()) {
+            LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
+            auto& pf = pending_futures.front();
+            if (pf.valid()) {
+                const auto addr = pf.get();
+                if (addr.has_value())
+                    temp_data.erase(addr.value());
+                pending_futures.pop_front();
+            }
+        }
+            get_write_locks(writeRequest);
+//            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
+        Info info = {BlockState::DISK, writeRequest->data_length(), writeRequest->data()};
+        // TODO: make map thread safe
+        temp_data[(int)writeRequest->address()] = &info;
+        if (backup_state == BackupState::ALIVE) {
+            ClientContext context;
+            ds::AckResponse ackResponse;
+            LOG_DEBUG_MSG("sending write to backup");
+            Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
+            LOG_DEBUG_MSG("back from backup");
+        }
+        LOG_DEBUG_MSG("write from map to file:", writeRequest->data());
+        int flag = write(writeRequest->data().c_str(), writeRequest->address(),
+                         writeRequest->data_length());
+        release_write_locks(writeRequest);
+        if (flag == -1) {
+            throw std::logic_error("unlock at backup!!");
+            return Status::CANCELLED;
+        }
+        writeResponse->set_bytes_written(writeRequest->data_length());
+
+        if (backup_state == BackupState::ALIVE) {
+            LOG_DEBUG_MSG("commit to backup");
+            ClientContext context;
+            ds::CommitRequest commitRequest;
+            const int waddr = writeRequest->address();
+            commitRequest.set_address(waddr);
+
+            fut_t f = std::async(std::launch::async,
+                [&]() -> std::optional<int> {
+                    ClientContext context;
+                    ds::CommitRequest commitRequest;
+                    commitRequest.set_address(waddr);
+                    ds::AckResponse ackResponse;
+                    if ((stub_->s_commit(&context, commitRequest, &ackResponse)).ok())
+                        return waddr;
+                    return std::nullopt;
+            });
+//                f.get();
+            pending_futures.push_back(std::move(f));
+            while (pending_futures.size() > 0) {
+                LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
                 auto& pf = pending_futures.front();
                 if (pf.valid()) {
+                    LOG_DEBUG_MSG("future result ready");
                     const auto addr = pf.get();
+                    LOG_DEBUG_MSG("address is ", addr.value());
                     if (addr.has_value())
                         temp_data.erase(addr.value());
                     pending_futures.pop_front();
                 }
             }
-//            get_write_locks(writeRequest);
-//            BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
-            Info info = {BlockState::DISK, writeRequest->data_length(), writeRequest->data()};
-            // TODO: make map thread safe
-            temp_data[(int)writeRequest->address()] = &info;
-            if (backup_state == BackupState::ALIVE) {
-                ClientContext context;
-                ds::AckResponse ackResponse;
-                LOG_DEBUG_MSG("sending write to backup");
-                Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
-                LOG_DEBUG_MSG("back from backup");
-            }
-            LOG_DEBUG_MSG("write from map to file:", writeRequest->data());
-            int flag = write(writeRequest->data().c_str(), writeRequest->address(), writeRequest->data_length());
-            if (flag == -1) {
-                throw std::logic_error("unlock at backup!!");
-                return Status::CANCELLED;
-            }
-            writeResponse->set_bytes_written(writeRequest->data_length());
-
-            if (backup_state == BackupState::ALIVE) {
-                LOG_DEBUG_MSG("commit to backup");
-                ClientContext context;
-                ds::CommitRequest commitRequest;
-                const int waddr = writeRequest->address();
-                commitRequest.set_address(waddr);
-
-                fut_t f = std::async(std::launch::async,
-                    [&]() -> std::optional<int> {
-                        ClientContext context;
-                        ds::CommitRequest commitRequest;
-                        commitRequest.set_address(waddr);
-                        ds::AckResponse ackResponse;
-                        if ((stub_->s_commit(&context, commitRequest, &ackResponse)).ok())
-                            return waddr;
-                        return std::nullopt;
-                });
-                f.get();
-//                pending_futures.push_back(std::move(f));
-//                if (pending_futures.size() > 0) {
-//                    LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
-//                    auto& pf = pending_futures.front();
-//                    optional<int> I = pf.get();
-//                    if (I != std::nullopt){
-//
-//                    }
-//                    if (pf.valid())
-//                        LOG_DEBUG_MSG("future result ready");
-//                        const auto addr = pf.get();
-//                        LOG_DEBUG_MSG("address is ", addr);
-//                        if (addr.has_value())
-//                            temp_data.erase(addr.value());
-//                        pending_futures.pop_front();
-//                    }
-//                }
-                LOG_DEBUG_MSG("committed to backup");
-            }
-//            release_write_locks(writeRequest);
-            return Status::OK;
+            LOG_DEBUG_MSG("committed to backup");
         }
+        return Status::OK;
     }
 
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,

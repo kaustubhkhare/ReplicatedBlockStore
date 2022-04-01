@@ -147,8 +147,8 @@ int main(int argc, char *argv[]) {
 
     LBServiceImpl service(channels, targets);
 
-    std::thread t1(&LBServiceImpl::start_check, &service);
-
+//    std::thread t1(&LBServiceImpl::start_check, &service);
+    auto t1 = std::thread([&]() { service.start_check(); });
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.SetMaxSendMessageSize(INT_MAX);

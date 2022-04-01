@@ -70,21 +70,23 @@ public:
 
         int server = rand() % 2;
         if (secondary_idx != -1) {
-            if (server == 1) {
+//            if (server == 1) {
                 ClientContext context;
                 LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
                 status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
                 LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
-            } else {
+//            } else {
                 ClientContext context2;
 
                 LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
                 status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
                 LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
-            }
+//            }
             if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
                 LOG_DEBUG_MSG("primary backup data not matching");
-             }
+             } else {
+                LOG_DEBUG_MSG("data committed to backup");
+            }
         } else {
             LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
             status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
