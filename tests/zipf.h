@@ -1,11 +1,27 @@
 #include <random>
 #include <vector>
+#include <algorithm>
+constexpr static int FOUR_K = 4096;
+template <template <class...> class Dis, class IntType, class... Ts>
+auto get(Dis<IntType, Ts...>& dis, const int n, double aligned_ratio)
+{
+    std::vector<IntType> a = dis.get(n * FOUR_K * (1 - aligned_ratio), false);
+    {
+        std::vector<IntType> b = dis.get(n * (aligned_ratio), true);
+        a.insert(a.end(), b.begin(), b.end());
+    }
+    std::shuffle(a.begin(), a.end(), dis.get_rng());
+    return a;
+}
 
 template<class IntType = unsigned long>
 class uniform_distribution {
     std::mt19937 rng;
     std::uniform_int_distribution<int> dis;
-public: 
+public:
+    std::mt19937 get_rng() const {
+        return rng;
+    }
     uniform_distribution(int from, int to): rng(std::random_device()()), dis(from, to) {}
 
     std::vector<IntType> get(const int n, bool four_k_multiply = false) {
@@ -16,7 +32,7 @@ public:
 
     IntType getNext(bool four_k_multiply = false) {
         auto v = dis(rng);
-        if (four_k_multiply) v *= 4096;
+        if (four_k_multiply) v *= FOUR_K;
         return v;
     }
 };
@@ -32,6 +48,10 @@ class zipf_distribution
 {
     std::mt19937 rng;
 public:
+    std::mt19937 get_rng() const {
+        return rng;
+    }
+
     typedef RealType input_type;
     typedef IntType result_type;
 
@@ -62,7 +82,7 @@ public:
             const RealType x = H_inv(u);
             IntType  k = clamp<IntType>(std::round(x), 1, n);
             if (u >= H(k + 0.5) - h(k)) {
-                if (four_k_multiply) k *= 4096;
+                if (four_k_multiply) k *= FOUR_K;
                 return k;
             }
         }
