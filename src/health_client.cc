@@ -76,28 +76,48 @@ public:
                 ClientContext context;
                 ds::HBResponse response;
                 ds::HBRequest request;
-                request.set_is_primary(primary_idx.load() == i);
+//                request.set_is_primary(primary_idx.load() == i);
                 status = server_stubs_[i]->hb_check(&context, request, &response);
                 if (!status.ok()) {
                     if (available_hosts.count(i) > 0)
                         available_hosts.erase(i);
                     dead_hosts.insert(i);
-                    if (primary_idx.load() == i)
+                    if (primary_idx == i) {
                         assign_new_primary();
-                    secondary_idx.store(-1);
+                        request.set_is_primary(true);
+                        request.set_sec_alive(false);
+                        status = server_stubs_[(i+1)%2]->hb_tell(&context, request, &response);
+                        LOG_DEBUG_MSG("Primary at", targets[i], "went down, setting", targets[i+1%2], "as primary" );
+                    } else {
+                        request.set_sec_alive(false);
+                        status = server_stubs_[i]->hb_tell(&context, request, &response);
+                        secondary_idx.store(-1);
+                        LOG_DEBUG_MSG("backup at", targets[i], "went down, setting backup as dead");
+                    }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else {
 //                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
                     if (dead_hosts.count(i) > 0) {
                         dead_hosts.erase(i);
-                        secondary_idx.store(i);
+//                        secondary_idx.store(i);
                     }
-
-                    // shouldn't reach below
-                    if (primary_idx.load() == -1)
+                    if (primary_idx.load() == -1) {
                         assign_new_primary();
-//                    LOG_DEBUG_MSG("Server ", targets[i], " is up.");
+                        request.set_is_primary(true);
+                        request.set_sec_alive(false);
+                        status = server_stubs_[i]->hb_tell(&context, request, &response);
+                        LOG_DEBUG_MSG("Primary not set, setting ", targets[i], "as primary");
+                    }
+                    else if (secondary_idx.load() == -1){
+                        secondary_idx.store(i);
+                        request.set_is_primary(false);
+                        request.set_sec_alive(false);
+                        status = server_stubs_[i]->hb_tell(&context, request, &response);
+                        LOG_DEBUG_MSG("Secondary not set, setting", targets[i], "as secondary");
+                    } else {
+                        //do nothing
+                    }
                 }
             }
             sleep(1);

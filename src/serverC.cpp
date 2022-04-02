@@ -106,9 +106,10 @@ public:
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
         backup_state = BackupState::ALIVE;
         current_server_state_ = primary ? ServerState::PRIMARY : ServerState::BACKUP;
-//        if (!primary) {
-//            secondary_reintegration();
-//        }
+        if (!primary) {
+            LOG_DEBUG_MSG("reintegration started at backup")
+            secondary_reintegration();
+        }
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {

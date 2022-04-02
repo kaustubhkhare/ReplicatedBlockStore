@@ -43,6 +43,7 @@ message ServerDiscoveryRequest {
 
 message HBRequest {
   bool is_primary = 1;
+  bool sec_alive = 2;
 }
 
 message HBResponse {
@@ -68,6 +69,7 @@ service gRPCService {
   rpc s_write (WriteRequest) returns (AckResponse) {}
   rpc s_commit (CommitRequest) returns (AckResponse) {}
   rpc hb_check(HBRequest) returns (HBResponse) {}
+  rpc hb_tell(HBRequest) returns (HBResponse) {}
   rpc p_reintegration (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc p_reintegration_phase_two (ReintegrationRequest) returns (ReintegrationResponse) {}
   rpc p_reintegration_complete (ReintegrationRequest) returns (ReintegrationResponse) {}

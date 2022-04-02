@@ -18,11 +18,11 @@ struct TestTemplate {
 };
 
 struct ClientInterface {
-    std::string p_read(int addr) {
+    std::string read(int addr, int) {
         std::cout << "[R] " << addr << '\n';
         return "AAAA";
     }
-    void p_write(int addr, int sz, const char* buf) {
+    void write(int addr, int sz, const char* buf) {
         std::cout << "[W] " << addr << "-> " << std::string(buf, sz) << '\n';
     }
 
@@ -56,7 +56,7 @@ std::string make_comma_sep(T&& t, Ts&&... ts) {
     return s;
 }
 
-int main() {
+int test1(int argc, char** argv) {
     ClientInterface client;
     for (auto aligned_ratio: ALIGNED_OPS_RATIO) {
         for (auto ops: NUM_OPS) {

@@ -1,4 +1,6 @@
+#pragma once
 #include <string>
+#include <iostream>
 #include <stdexcept>
 #include <time.h>
 

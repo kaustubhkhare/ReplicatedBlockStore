@@ -1,0 +1,2 @@
+REG_TEST(1);
+REG_TEST(2);
