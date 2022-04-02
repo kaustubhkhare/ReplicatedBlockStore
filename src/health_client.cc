@@ -82,17 +82,27 @@ public:
                     if (available_hosts.count(i) > 0)
                         available_hosts.erase(i);
                     dead_hosts.insert(i);
-                    if (primary_idx == i) {
+                    if (primary_idx.load() == i) {
                         assign_new_primary();
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
-                        status = server_stubs_[(i+1)%2]->hb_tell(&context, request, &response);
-                        LOG_DEBUG_MSG("Primary at", targets[i], "went down, setting", targets[i+1%2], "as primary" );
+                        status = server_stubs_[primary_idx.load()]->hb_tell(&context, request, &response);
+                        if (!status.ok()) {
+                            LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1");
+                            primary_idx.store(-1);
+                        } else {
+                            LOG_DEBUG_MSG("Primary at", targets[i], "went down, set", targets[(i + 1) % 2],
+                                          "as primary");
+                        }
                     } else {
                         request.set_sec_alive(false);
-                        status = server_stubs_[i]->hb_tell(&context, request, &response);
+                        status = server_stubs_[primary_idx.load()]->hb_tell(&context, request, &response);
                         secondary_idx.store(-1);
-                        LOG_DEBUG_MSG("backup at", targets[i], "went down, setting backup as dead");
+                        if (!status.ok()) {
+                            LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1. Secondary also dead.");
+                            primary_idx.store(-1);
+                        } else
+                            LOG_DEBUG_MSG("Backup at", targets[i], "went down, setting backup as dead");
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else {
@@ -103,7 +113,7 @@ public:
 //                        secondary_idx.store(i);
                     }
                     if (primary_idx.load() == -1) {
-                        assign_new_primary();
+                        assign_new_primary(i);
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
                         status = server_stubs_[i]->hb_tell(&context, request, &response);
