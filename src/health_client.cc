@@ -80,13 +80,16 @@ public:
     void start_check() {
         while (true) {
             for (int i = 0; i < targets.size(); i++) {
+                LOG_DEBUG_MSG("Testing ", targets[i]);
                 Status status;
                 ClientContext context;
                 ds::HBResponse response;
                 ds::HBRequest request;
 //                request.set_is_primary(primary_idx.load() == i);
                 status = server_stubs_[i]->hb_check(&context, request, &response);
+                LOG_DEBUG_MSG("Status ErrorCode: ", status.error_code(), " Error: ", status.error_message());
                 if (!status.ok()) {
+                    LOG_DEBUG_MSG("status not okay");
                     ClientContext context1;
                     if (available_hosts.count(i) > 0)
                         available_hosts.erase(i);
@@ -114,7 +117,8 @@ public:
                             LOG_DEBUG_MSG("Backup at", targets[i], "went down, setting backup as dead");
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
-                } else {
+                } else if (status.ok()) {
+                    LOG_DEBUG_MSG("status okay");
                     ClientContext context2;
 //                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
@@ -138,6 +142,9 @@ public:
                     } else {
                         //do nothing
                     }
+                } else {
+                    LOG_DEBUG_MSG("error");
+                    //
                 }
             }
             sleep(1);
