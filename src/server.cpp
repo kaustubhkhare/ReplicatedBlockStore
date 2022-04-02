@@ -84,11 +84,11 @@ public:
     }
 
     void set_server_state(ServerState serverState) {
-        current_server_state_ = serverState;
+        current_server_state_.store(serverState);
     }
 
     void set_backup_state(BackupState backupState) {
-        backup_state = backupState;
+        backup_state.store(backupState);
     }
 
     void transition(ServerState current_state) {
@@ -118,7 +118,7 @@ public:
         if (!primary) {
             LOG_DEBUG_MSG("reintegration started at backup");
             secondary_reintegration();
-            backup_state = BackupState::ALIVE;
+            backup_state.store(BackupState::ALIVE);
         }
     }
 
