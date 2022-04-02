@@ -59,18 +59,22 @@ public:
             server_stubs_.emplace_back(gRPCService::NewStub(channel));
     }
 
-    void assign_new_primary() {
-        if (available_hosts.size() == 0)
-            primary_idx.store(-1);
-        primary_idx.store(*available_hosts.begin());
-    }
+//    void assign_new_primary() {
+//        if (available_hosts.size() == 0)
+//            primary_idx.store(-1);
+//        primary_idx.store(*available_hosts.begin());
+//    }
 
     void assign_new_primary(int i) {
         primary_idx.store(i);
     }
 
-    void assign_new_secondary() {
-        secondary_idx.store((secondary_idx.load() + 1) % available_hosts.size());
+//    void assign_new_secondary() {
+//        secondary_idx.store((secondary_idx.load() + 1) % available_hosts.size());
+//    }
+
+    void assign_new_secondary(int i) {
+        secondary_idx.store(i);
     }
 
     void start_check() {
@@ -83,14 +87,15 @@ public:
 //                request.set_is_primary(primary_idx.load() == i);
                 status = server_stubs_[i]->hb_check(&context, request, &response);
                 if (!status.ok()) {
+                    ClientContext context1;
                     if (available_hosts.count(i) > 0)
                         available_hosts.erase(i);
                     dead_hosts.insert(i);
                     if (primary_idx.load() == i) {
-                        assign_new_primary();
+                        assign_new_primary(i);
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
-                        status = server_stubs_[primary_idx.load()]->hb_tell(&context, request, &response);
+                        status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
                         if (!status.ok()) {
                             LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1");
                             primary_idx.store(-1);
@@ -100,7 +105,7 @@ public:
                         }
                     } else {
                         request.set_sec_alive(false);
-                        status = server_stubs_[primary_idx.load()]->hb_tell(&context, request, &response);
+                        status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
                         secondary_idx.store(-1);
                         if (!status.ok()) {
                             LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1. Secondary also dead.");
@@ -110,6 +115,7 @@ public:
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else {
+                    ClientContext context2;
 //                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
                     if (dead_hosts.count(i) > 0) {
@@ -120,14 +126,14 @@ public:
                         assign_new_primary(i);
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
-                        status = server_stubs_[i]->hb_tell(&context, request, &response);
+                        status = server_stubs_[i]->hb_tell(&context2, request, &response);
                         LOG_DEBUG_MSG("Primary not set, setting ", targets[i], "as primary");
                     }
                     else if (secondary_idx.load() == -1){
                         secondary_idx.store(i);
                         request.set_is_primary(false);
                         request.set_sec_alive(false);
-                        status = server_stubs_[i]->hb_tell(&context, request, &response);
+                        status = server_stubs_[i]->hb_tell(&context2, request, &response);
                         LOG_DEBUG_MSG("Secondary not set, setting", targets[i], "as secondary");
                     } else {
                         //do nothing
