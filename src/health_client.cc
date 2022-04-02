@@ -65,6 +65,10 @@ public:
         primary_idx.store(*available_hosts.begin());
     }
 
+    void assign_new_primary(int i) {
+        primary_idx.store(i);
+    }
+
     void assign_new_secondary() {
         secondary_idx.store((secondary_idx.load() + 1) % available_hosts.size());
     }
