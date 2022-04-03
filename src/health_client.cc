@@ -106,6 +106,7 @@ public:
                                           "as primary");
                         }
                     } else if (secondary_idx.load() == i){
+                        request.set_is_primary(true);
                         request.set_sec_alive(false);
                         status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
                         secondary_idx.store(-1);
@@ -177,14 +178,14 @@ int main(int argc, char *argv[]) {
 //        return 0;
 //    }
 
-    std::string ip{"0.0.0.0"}, port{"60051"};
-    for (int i = 1; i < argc - 1; ++i) {
-        if (!strcmp(argv[i], "-ip")) {
-            ip = std::string{argv[i+1]};
-        } else if(!strcmp(argv[i], "-port")) {
-            port = std::string{argv[i+1]};
-        }
-    }
+    std::string ip{"0.0.0.0"}, port{argv[1]};
+//    for (int i = 1; i < argc - 1; ++i) {
+//        if (!strcmp(argv[i], "-ip")) {
+//            ip = std::string{argv[i+1]};
+//        } else if(!strcmp(argv[i], "-port")) {
+//            port = std::string{argv[i+1]};
+//        }
+//    }
     std::string server_address(ip + ":" + port);
     std::vector<std::string> targets {"0.0.0.0:" + std::to_string(constants::PRIMARY_PORT),
                                       "0.0.0.0:" + std::to_string(constants::BACKUP_PORT)};

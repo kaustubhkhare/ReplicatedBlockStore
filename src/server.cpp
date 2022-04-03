@@ -166,31 +166,35 @@ public:
     }
 
     Status hb_tell(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-        if (request->is_primary()) {
-            LOG_DEBUG_MSG("becoming primary");
-            set_server_state(ServerState::PRIMARY);
-        } else {
-            LOG_DEBUG_MSG("becoming secondary");
-            set_server_state(ServerState::BACKUP);
-            LOG_DEBUG_MSG("reintegration started at backup");
-            // start in async
-            secondary_reintegration();
+//        if (request->has_is_primary()) {
+            if (request->is_primary()) {
+                LOG_DEBUG_MSG("becoming primary");
+                set_server_state(ServerState::PRIMARY);
+            } else {
+                LOG_DEBUG_MSG("becoming secondary");
+                set_server_state(ServerState::BACKUP);
+                LOG_DEBUG_MSG("reintegration started at backup");
+                // start in async
+//            secondary_reintegration();
 //            backup_state.store(BackupState::ALIVE);
-        }
-
-        if (request->sec_alive()) {
-            LOG_DEBUG_MSG("setting backup alive");
-            set_backup_state(BackupState::ALIVE);
-        } else {
-            LOG_DEBUG_MSG("setting backup dead");
-            set_backup_state(BackupState::DEAD);
-        }
+            }
+//        }
+//        if (request->has_sec_alive()) {
+            if (request->sec_alive()) {
+                LOG_DEBUG_MSG("setting backup alive");
+                set_backup_state(BackupState::ALIVE);
+            } else {
+                LOG_DEBUG_MSG("setting backup dead");
+                set_backup_state(BackupState::DEAD);
+            }
+//        }
         return Status::OK;
     }
 
     // Returns the block indices for the address and data_length.
     // In this case return vector size is at most 2
     std::vector<int> get_blocks_involved(const int address, const int data_length) {
+        LOG_DEBUG_MSG(data_length);
         int first_block = address / constants::BLOCK_SIZE;
         int end_of_first_block = (first_block + 1) * constants::BLOCK_SIZE - 1;
         int first_block_size_left = end_of_first_block - address + 1;
@@ -198,6 +202,7 @@ public:
         blocks_involved.push_back(first_block);
         if (data_length > first_block_size_left) {
             blocks_involved.push_back(first_block + 1);
+            LOG_DEBUG_MSG("second block added ", first_block+1);
         }
         return blocks_involved;
     }
@@ -209,7 +214,9 @@ public:
         for (const int &block: blocks) {
             per_block_locks[block].lock();
         }
-        LOG_DEBUG_MSG("locks acquired on ", blocks[0], " and ", blocks[1]);
+        for (auto block_num : blocks) {
+            LOG_DEBUG_MSG("locks acquired on ", block_num);
+        }
     }
 
     void release_write_locks(const ds::WriteRequest *writeRequest) {
@@ -219,14 +226,16 @@ public:
             per_block_locks[block].unlock();
         }
         reintegration_lock.unlock_shared();
-        LOG_DEBUG_MSG("locks released on ", blocks[0], " and ", blocks[1]);
+        for (auto block_num : blocks) {
+            LOG_DEBUG_MSG("locks acquired on ", block_num);
+        }
     }
 
     Status p_reintegration(ServerContext *context,
                            const ds::ReintegrationRequest* reintegrationRequest,
                            ds::ReintegrationResponse* reintegrationResponse) {
-        assert_msg(current_server_state_ != ServerState::PRIMARY,
-                   "Reintegration called on backup");
+//        assert_msg(current_server_state_ != ServerState::PRIMARY,
+//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("reintegration called at primary");
         this->backup_state = BackupState::REINTEGRATION;
         // return the entries in temp_data that are in disk state.
@@ -246,8 +255,8 @@ public:
     Status p_reintegration_phase_two(ServerContext *context,
                                      const ds::ReintegrationRequest* reintegrationRequest,
                                      ds::ReintegrationResponse* reintegrationResponse) {
-        assert_msg(current_server_state_ != ServerState::PRIMARY,
-                   "Reintegration called on backup");
+//        assert_msg(current_server_state_ != ServerState::PRIMARY,
+//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("reintegration phase 2 started, stalling all writes");
         // pause all writes for now!
         reintegration_lock.lock();
@@ -267,16 +276,18 @@ public:
     Status p_reintegration_complete(ServerContext *context,
                                     const ds::ReintegrationRequest* reintegrationRequest,
                                     ds::ReintegrationResponse* reintegrationResponse) {
-        assert_msg(current_server_state_ != ServerState::PRIMARY,
-                   "Reintegration called on backup");
+//        assert_msg(current_server_state_ != ServerState::PRIMARY,
+//                   "Reintegration called on backup");
         this->backup_state = BackupState::ALIVE;
         reintegration_lock.unlock();
         return Status::OK;
     }
 
     void secondary_reintegration() {
-        assert_msg(current_server_state_ != ServerState::BACKUP,
-                   "Reintegration called on primary");
+        LOG_DEBUG_MSG("here");
+//        assert_msg(current_server_state_ != ServerState::BACKUP,
+//                   "Reintegration called on primary");
+        LOG_DEBUG_MSG("here");
         ClientContext context;
         ds::ReintegrationRequest reintegration_request;
         ds::ReintegrationResponse reintegration_response;
@@ -319,8 +330,9 @@ public:
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
                    ds::WriteResponse *writeResponse) {
-        assert_msg(current_server_state_ != ServerState::PRIMARY,
-                   "Reintegration called on backup");
+        LOG_DEBUG_MSG("here");
+//        assert_msg(current_server_state_ != ServerState::PRIMARY,
+//                   "Reintegration called on backup");
         if (current_server_state_ != ServerState::PRIMARY) {
             return Status::CANCELLED;
         }
@@ -395,8 +407,8 @@ public:
 
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::AckResponse *ackResponse) {
-        assert_msg(current_server_state_ != ServerState::BACKUP,
-                   "Reintegration called on backup");
+//        assert_msg(current_server_state_ != ServerState::BACKUP,
+//                   "Reintegration called on backup");
         if (current_server_state_ == ServerState::BACKUP) {
             LOG_DEBUG_MSG("Starting backup server write");
             BlockState state = BlockState::LOCKED;
@@ -410,8 +422,8 @@ public:
 
     Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
         ds::AckResponse *ackResponse) {
-        assert_msg(current_server_state_ != ServerState::BACKUP,
-                   "Reintegration called on backup");
+//        assert_msg(current_server_state_ != ServerState::BACKUP,
+//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("calling commit on backup");
         Info *info = temp_data[(int)commitRequest->address()];
         write(info->data.c_str(), commitRequest->address(), info->length);
