@@ -141,11 +141,14 @@ public:
         } else {
             if (initialization) {
                 servers.clear();
+                grpc::ChannelArguments args;
+                args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
+
                 for (int i = 0; i < response.hosts_size(); i++) {
                     servers.push_back(response.hosts(i));
                     LOG_DEBUG_MSG(servers[i]);
-                    server_stubs_.push_back(gRPCService::NewStub(grpc::CreateChannel(servers[i],
-                        grpc::InsecureChannelCredentials())));
+                    server_stubs_.push_back(gRPCService::NewStub(grpc::CreateCustomChannel(servers[i],
+                        grpc::InsecureChannelCredentials(), args)));
                 }
             }
             primary_idx = response.primary();
@@ -182,7 +185,10 @@ int main(int argc, char *argv[]) {
     std::string server_address(ip + ":" + port);
     LOG_DEBUG_MSG("Connecting to ", server_address);
 
-    GRPCClient client(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
+    grpc::ChannelArguments args;
+    args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
+
+    GRPCClient client(grpc::CreateCustomChannel(server_address, grpc::InsecureChannelCredentials(), args));
     client.discover_servers(true);
 
     while (true) {
