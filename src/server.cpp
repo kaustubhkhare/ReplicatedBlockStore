@@ -35,18 +35,19 @@ using grpc::ClientContext;
 class gRPCServiceImpl final : public gRPCService::Service {
 private:
     enum class BlockState{DISK, LOCKED, MEMORY};
-    typedef struct {
+    struct Info {
         BlockState state;
         int length;
         std::string data;
-    } Info;
+        Info(BlockState& s, int l, std::string d): state(s), length(l), data(std::move(d)){}
+    };
     std::string filename;
     enum class BackupState {ALIVE, DEAD, REINTEGRATION};
     std::atomic<BackupState> backup_state;
     enum class ServerState: int32_t { PRIMARY = 0, BACKUP };
     std::atomic<ServerState> current_server_state_;
     std::unique_ptr <gRPCService::Stub> stub_;
-    std::unordered_map<int, Info*> temp_data;
+    std::unordered_map<int, std::unique_ptr<Info>> temp_data;
     using fut_t = std::future<std::optional<int>>;
     std::deque<fut_t> pending_futures;
     std::shared_mutex reintegration_lock;
@@ -162,10 +163,18 @@ public:
     }
 
     Status hb_check(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
+        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
+        if (temp_data.size() > 0)
+            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
+
         return Status::OK;
     }
 
     Status hb_tell(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
+        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
+        if (temp_data.size() > 0)
+            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
+
 //        if (request->has_is_primary()) {
             if (request->is_primary()) {
                 LOG_DEBUG_MSG("becoming primary");
@@ -175,7 +184,7 @@ public:
                 set_server_state(ServerState::BACKUP);
                 LOG_DEBUG_MSG("reintegration started at backup");
                 // start in async
-//            secondary_reintegration();
+            secondary_reintegration();
 //            backup_state.store(BackupState::ALIVE);
             }
 //        }
@@ -240,15 +249,24 @@ public:
         this->backup_state = BackupState::REINTEGRATION;
         // return the entries in temp_data that are in disk state.
         // opt_todo: stream the entries instead of returning at once
-        for (auto it: temp_data) {
-            Info *info = it.second;
+        int c = 0; // debug
+        LOG_DEBUG_MSG("temp_data_size:" + std::to_string(temp_data.size()));
+        for (auto& it: temp_data) {
+            auto& info = it.second;
+            LOG_DEBUG_MSG("info ->", "(state) ", (info->state == BlockState::DISK ? "disk" : "not disk"));
             if (info->state == BlockState::DISK) {
+                LOG_DEBUG_MSG("inside if1");
                 int address = it.first;
                 reintegrationResponse->add_addresses(address);
+                LOG_DEBUG_MSG("inside if2");
                 reintegrationResponse->add_data_lengths(info->length);
+                LOG_DEBUG_MSG("inside if3");
                 reintegrationResponse->add_data(info->data);
+                c++;
+                LOG_DEBUG_MSG("inside if4");
             }
         }
+        LOG_DEBUG_MSG("records in disk state:", std::to_string(c));
         return Status::OK;
     }
 
@@ -262,8 +280,8 @@ public:
         reintegration_lock.lock();
         // return the entries in temp_data that are in MEMORY state.
         // opt_todo: stream the entries instead of returning at once
-        for (auto it: temp_data) {
-            Info *info = it.second;
+        for (auto& it: temp_data) {
+            auto& info = it.second;
             if (info->state == BlockState::MEMORY) {
                 reintegrationResponse->add_addresses(it.first);
                 reintegrationResponse->add_data_lengths(info->length);
@@ -294,22 +312,30 @@ public:
         LOG_DEBUG_MSG("sending reintegration request to primary");
         Status status = stub_->p_reintegration(
                 &context, reintegration_request, &reintegration_response);
-
+        if (!status.ok()) {
+            LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+        }
         LOG_DEBUG_MSG("received reintegration response at secondary");
         // write all missing writes in the backup
+
         for (int i = 0; i < reintegration_response.data_size(); i++) {
             write(reintegration_response.data(i).c_str(),
                    reintegration_response.addresses(i),
                   reintegration_response.data_lengths(i));
         }
+        LOG_DEBUG_MSG("wrote " + std::to_string(reintegration_response.data_size()) + " DISK records");
 
         // get memory based writes
         reintegration_response.clear_data();
         reintegration_response.clear_data_lengths();
         reintegration_response.clear_addresses();
+        ClientContext context1;
         LOG_DEBUG_MSG("sending reintegration phase 2 request to primary");
         status = stub_->p_reintegration_phase_two(
-                &context, reintegration_request, &reintegration_response);
+                &context1, reintegration_request, &reintegration_response);
+        if (!status.ok()) {
+            LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+        }
 
         LOG_DEBUG_MSG("received reintegration phase 2 response at secondary");
         for (int i = 0; i < reintegration_response.data_size(); i++) {
@@ -317,13 +343,18 @@ public:
                     reintegration_response.addresses(i),
                     reintegration_response.data_lengths(i));
         }
-
+        LOG_DEBUG_MSG("wrote " + std::to_string(reintegration_response.data_size()) + " MEM records");
         // notify primary that reintegration is complete
         reintegration_response.clear_data();
         reintegration_response.clear_data_lengths();
         reintegration_response.clear_addresses();
+        ClientContext context2;
         status = stub_->p_reintegration_complete(
-            &context, reintegration_request, &reintegration_response);
+            &context2, reintegration_request, &reintegration_response);
+        if (!status.ok()) {
+            LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+        }
+
         set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("reintegration complete");
     }
@@ -349,9 +380,13 @@ public:
         }
         get_write_locks(writeRequest);
         BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
-        Info info = {state, writeRequest->data_length(), writeRequest->data()};
+        LOG_DEBUG_MSG("Backup state:", backup_state == BackupState::REINTEGRATION ? "r" : "not r");
+        LOG_DEBUG_MSG("wrtiing in primary with state ", ((state == BlockState::DISK) ? "DISK" : "MEM"));
+//        Info info = {};
         // TODO: make map thread safe
-        temp_data[(int)writeRequest->address()] = &info;
+        temp_data[(int)writeRequest->address()] = std::make_unique<Info>(state, writeRequest->data_length(), writeRequest->data());
+
+        LOG_DEBUG_MSG("temp_data size:" + std::to_string(temp_data.size()));
         if (backup_state == BackupState::ALIVE) {
             ClientContext context;
             ds::AckResponse ackResponse;
@@ -412,8 +447,7 @@ public:
         if (current_server_state_ == ServerState::BACKUP) {
             LOG_DEBUG_MSG("Starting backup server write");
             BlockState state = BlockState::LOCKED;
-            Info info = {state, writeRequest->data_length(), writeRequest->data()};
-            temp_data[(int) writeRequest->address()] = &info;
+            temp_data[(int) writeRequest->address()] = std::make_unique<Info>(state, writeRequest->data_length(), writeRequest->data());
         } else {
             LOG_DEBUG_MSG("calling s_write at primary whyyy?");
         }
@@ -425,7 +459,7 @@ public:
 //        assert_msg(current_server_state_ != ServerState::BACKUP,
 //                   "Reintegration called on backup");
         LOG_DEBUG_MSG("calling commit on backup");
-        Info *info = temp_data[(int)commitRequest->address()];
+        auto& info = temp_data[(int)commitRequest->address()];
         write(info->data.c_str(), commitRequest->address(), info->length);
         temp_data.erase((int)commitRequest->address());
         return Status::OK;
@@ -473,6 +507,6 @@ int main(int argc, char *argv[]) {
     builder.SetMaxMessageSize(INT_MAX);
     builder.RegisterService(&service);
     std::unique_ptr<Server> server(builder.BuildAndStart());
-    std::cout << "Server listening on " << server_address << std::endl;
+    std::cerr << "Server listening on " << server_address << std::endl;
     server->Wait();
 }
