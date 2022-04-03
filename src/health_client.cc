@@ -13,6 +13,7 @@
 #include <numeric>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -78,7 +79,7 @@ public:
     void start_check() {
         while (true) {
             for (int i = 0; i < targets.size(); i++) {
-                LOG_DEBUG_MSG("Testing ", targets[i]);
+//                LOG_DEBUG_MSG("Testing ", targets[i]);
                 Status status;
                 ClientContext context;
                 ds::HBResponse response;
@@ -120,7 +121,7 @@ public:
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else if (status.ok()) {
-                    LOG_DEBUG_MSG("status okay");
+//                    LOG_DEBUG_MSG("status okay");
                     ClientContext context2;
 //                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
@@ -172,23 +173,39 @@ public:
 
 };
 
-int main(int argc, char *argv[]) {
-//    if (argc < 5) {
-//        printf("Usage : ./health_client -ip <ip> -port <port>\n");
-//        return 0;
-//    }
+std::vector<std::string> get_separated(std::string str, char delimiter) {
+    std::vector<std::string> v;
+    std::stringstream ss(str);
 
-    std::string ip{"0.0.0.0"}, port{argv[1]};
-//    for (int i = 1; i < argc - 1; ++i) {
-//        if (!strcmp(argv[i], "-ip")) {
-//            ip = std::string{argv[i+1]};
-//        } else if(!strcmp(argv[i], "-port")) {
-//            port = std::string{argv[i+1]};
-//        }
-//    }
+    while (ss.good()) {
+        std::string substr;
+        getline(ss, substr, delimiter);
+        v.push_back(substr);
+    }
+
+    return v;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 7) {
+        printf("Usage : ./health_client -ip <ip> -port <port> -hosts <comma sep host:port>\n");
+        return 0;
+    }
+
+    std::string ip{"0.0.0.0"}, port{"60051"};
+    std::vector<std::string> v;
+    for (int i = 1; i < argc - 1; ++i) {
+        if (!strcmp(argv[i], "-ip")) {
+            ip = std::string{argv[i+1]};
+        } else if (!strcmp(argv[i], "-port")) {
+            port = std::string{argv[i+1]};
+        } else if (!strcmp(argv[i], "-hosts")) {
+            v = get_separated(std::string(argv[i + 1]), ',');
+        }
+    }
     std::string server_address(ip + ":" + port);
-    std::vector<std::string> targets {"0.0.0.0:" + std::to_string(constants::PRIMARY_PORT),
-                                      "0.0.0.0:" + std::to_string(constants::BACKUP_PORT)};
+    std::vector<std::string> targets {v[0],
+                                      v[1]};
     std::vector<std::shared_ptr<::grpc::Channel>> channels {
         grpc::CreateChannel(targets[0], grpc::InsecureChannelCredentials()),
         grpc::CreateChannel(targets[1], grpc::InsecureChannelCredentials())

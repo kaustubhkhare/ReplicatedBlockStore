@@ -165,10 +165,10 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-//    if (argc < 5) {
-//        printf("Usage : ./client -ip <ip> -port <port>\n");
-//        return 0;
-//    }
+    if (argc < 5) {
+        printf("Usage : ./client -ip <ip of LB> -port <port of LB>\n");
+        return 0;
+    }
 
 
     std::string ip{"0.0.0.0"}, port{"7070"};
