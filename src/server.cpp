@@ -123,8 +123,8 @@ public:
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
-        ASS(current_server_state_ == ServerState::PRIMARY,
-            "waiting for reads in primary shouldn't happen");
+//        ASS(current_server_state_ == ServerState::PRIMARY,
+//            "waiting for reads in primary shouldn't happen");
         std::vector<int> blocks = get_blocks_involved(
                 readRequest->address(), constants::BLOCK_SIZE);
         // change this to get signaled when the entry is removed
@@ -147,9 +147,9 @@ public:
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
-//        if (current_server_state_ == ServerState::BACKUP) {
-//            wait_before_read(readRequest);
-//        }
+        if (current_server_state_ == ServerState::BACKUP) {
+            wait_before_read(readRequest);
+        }
         if (get_server_state() == ServerState::BACKUP)
             LOG_DEBUG_MSG("reading from backup");
         else LOG_DEBUG_MSG("reading from primary");
@@ -324,7 +324,9 @@ public:
                   reintegration_response.data_lengths(i));
         }
         LOG_DEBUG_MSG("wrote " + std::to_string(reintegration_response.data_size()) + " DISK records");
-
+        LOG_DEBUG_MSG("PAUSING\n");
+        int debug_integer;
+        std::cin >> debug_integer;
         // get memory based writes
         reintegration_response.clear_data();
         reintegration_response.clear_data_lengths();
