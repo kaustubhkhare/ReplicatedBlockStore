@@ -51,10 +51,8 @@ private:
 public:
     LBServiceImpl(std::vector<std::shared_ptr<Channel>> channels, std::vector<std::string> t) {
         targets = t;
-        primary_idx.store(0);
-        secondary_idx.store(1);
-        available_hosts.insert(0);
-        available_hosts.insert(1);
+        primary_idx.store(-1);
+        secondary_idx.store(-1);
         for (auto channel: channels)
             server_stubs_.emplace_back(gRPCService::NewStub(channel));
     }
@@ -87,7 +85,7 @@ public:
                 ds::HBRequest request;
 //                request.set_is_primary(primary_idx.load() == i);
                 status = server_stubs_[i]->hb_check(&context, request, &response);
-                LOG_DEBUG_MSG("Status ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+//                LOG_DEBUG_MSG("Status ErrorCode: ", status.error_code(), " Error: ", status.error_message());
                 if (!status.ok()) {
                     LOG_DEBUG_MSG("status not okay");
                     ClientContext context1;
@@ -99,6 +97,7 @@ public:
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
                         status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
+                        secondary_idx.store(-1);
                         if (!status.ok()) {
                             LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1");
                             primary_idx.store(-1);
@@ -106,7 +105,7 @@ public:
                             LOG_DEBUG_MSG("Primary at", targets[i], "went down, set", targets[(i + 1) % 2],
                                           "as primary");
                         }
-                    } else {
+                    } else if (secondary_idx.load() == i){
                         request.set_sec_alive(false);
                         status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
                         secondary_idx.store(-1);
@@ -115,6 +114,8 @@ public:
                             primary_idx.store(-1);
                         } else
                             LOG_DEBUG_MSG("Backup at", targets[i], "went down, setting backup as dead");
+                    } else {
+                        //
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else if (status.ok()) {
@@ -133,7 +134,7 @@ public:
                         status = server_stubs_[i]->hb_tell(&context2, request, &response);
                         LOG_DEBUG_MSG("Primary not set, setting ", targets[i], "as primary");
                     }
-                    else if (secondary_idx.load() == -1){
+                    else if (secondary_idx.load() == -1 && primary_idx.load() != i){
                         secondary_idx.store(i);
                         request.set_is_primary(false);
                         request.set_sec_alive(false);

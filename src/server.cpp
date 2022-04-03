@@ -106,20 +106,19 @@ public:
     }
 
     explicit gRPCServiceImpl(
-            std::shared_ptr<Channel> channel, const std::string filename, bool primary = true) :
+            std::shared_ptr<Channel> channel, const std::string filename) :
             stub_(gRPCService::NewStub(channel)) {
         std::vector<std::mutex> new_locks(constants::BLOCK_SIZE);
         per_block_locks.swap(new_locks);
-        current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
+//        current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
         this->filename = filename;
         create_file(filename);
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
-        backup_state = BackupState::DEAD;
-        if (!primary) {
-            LOG_DEBUG_MSG("reintegration started at backup");
-            secondary_reintegration();
-            backup_state.store(BackupState::ALIVE);
-        }
+//        if (!primary) {
+//            LOG_DEBUG_MSG("reintegration started at backup");
+//            secondary_reintegration();
+//            backup_state.store(BackupState::ALIVE);
+//        }
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
@@ -173,6 +172,10 @@ public:
         } else {
             LOG_DEBUG_MSG("becoming secondary");
             set_server_state(ServerState::BACKUP);
+            LOG_DEBUG_MSG("reintegration started at backup");
+            // start in async
+            secondary_reintegration();
+//            backup_state.store(BackupState::ALIVE);
         }
 
         if (request->sec_alive()) {
@@ -273,7 +276,7 @@ public:
 
     void secondary_reintegration() {
         assert_msg(current_server_state_ != ServerState::BACKUP,
-                   "Reintegration called on backup");
+                   "Reintegration called on primary");
         ClientContext context;
         ds::ReintegrationRequest reintegration_request;
         ds::ReintegrationResponse reintegration_response;
