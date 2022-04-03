@@ -129,7 +129,7 @@ public:
         writeRequest.set_data_length(length);
         writeRequest.set_data(wr_buffer);
 
-        LOG_DEBUG_MSG("Sending write to server");
+        LOG_DEBUG_MSG("Sending write to server ", primary_idx, "->", servers[primary_idx]);
         Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
         LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
 
