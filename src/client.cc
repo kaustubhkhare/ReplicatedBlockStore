@@ -41,6 +41,7 @@ private:
     int secondary_idx;
     long double lease_start;
     long double lease_duration;
+    std::string compare;
 
     static std::string hash_str(const char* src) {
         auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
@@ -54,7 +55,9 @@ private:
         return ss.str();
     }
 public:
-    GRPCClient(std::shared_ptr<Channel> lb_channel) : lb_stub_(LBService::NewStub(lb_channel)) {}
+    GRPCClient(std::shared_ptr<Channel> lb_channel, std::string cmp) : lb_stub_(LBService::NewStub(lb_channel)) {
+        compare = cmp;
+    }
 
     std::string read(int address, int length) {
         if (time_monotonic() > (lease_start + lease_duration))
@@ -70,22 +73,35 @@ public:
 
         int server = rand() % 2;
         if (secondary_idx != -1) {
-//            if (server == 1) {
+            if (compare == "1") {
                 ClientContext context;
                 LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
                 status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
                 LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
-//            } else {
-                ClientContext context2;
 
+                ClientContext context2;
                 LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
                 status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
                 LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
-//            }
-            if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
-                LOG_DEBUG_MSG("primary backup data not matching");
-             } else {
-                LOG_DEBUG_MSG("data committed to backup");
+
+                if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
+                    LOG_DEBUG_MSG("primary backup data not matching");
+                } else {
+                    LOG_DEBUG_MSG("data committed to backup");
+                }
+            } else {
+                if (server == 1) {
+                    ClientContext context;
+                    LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
+                    status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
+                    LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
+                } else {
+                    ClientContext context2;
+
+                    LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+                    status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
+                    LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+                }
             }
         } else {
             LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
@@ -168,27 +184,25 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-//    if (argc < 5) {
-//        printf("Usage : ./client -ip <ip> -port <port>\n");
-//        return 0;
-//    }
+    if (argc < 5) {
+        printf("Usage : ./client -lb <lbIp:port> -compare <1 or 0>\n");
+        return 0;
+    }
 
-
-    std::string ip{"0.0.0.0"}, port{"7070"};
+    std::string server_address{"localhost:60052"}, cmp{"0"};
     for (int i = 1; i < argc - 1; ++i) {
-        if(!strcmp(argv[i], "-ip")) {
-            ip = std::string{argv[i+1]};
-        } else if(!strcmp(argv[i], "-port")) {
-            port = std::string{argv[i+1]};
+        if(!strcmp(argv[i], "-lb")) {
+            server_address = std::string{argv[i+1]};
+        } else if(!strcmp(argv[i], "-compare")) {
+            cmp = std::string{argv[i+1]};
         }
     }
-    std::string server_address(ip + ":" + port);
     LOG_DEBUG_MSG("Connecting to ", server_address);
 
     grpc::ChannelArguments args;
     args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
 
-    GRPCClient client(grpc::CreateCustomChannel(server_address, grpc::InsecureChannelCredentials(), args));
+    GRPCClient client(grpc::CreateCustomChannel(server_address, grpc::InsecureChannelCredentials(), args), cmp);
     client.discover_servers(true);
 
     while (true) {
