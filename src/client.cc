@@ -114,7 +114,7 @@ public:
         writeRequest.set_data(wr_buffer);
 
         LOG_DEBUG_MSG("Sending write to server");
-        LOG_DEBUG_MSG("primary is ", servers[primary_idx]);
+        LOG_DEBUG_MSG("primary is ", servers.at(primary_idx));
         Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
 
         LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
@@ -165,10 +165,10 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    if (argc < 5) {
-        printf("Usage : ./client -ip <ip of LB> -port <port of LB>\n");
-        return 0;
-    }
+//    if (argc < 5) {
+//        printf("Usage : ./client -ip <ip> -port <port>\n");
+//        return 0;
+//    }
 
 
     std::string ip{"0.0.0.0"}, port{"7070"};

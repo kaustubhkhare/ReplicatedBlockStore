@@ -121,7 +121,7 @@ public:
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else if (status.ok()) {
-//                    LOG_DEBUG_MSG("status okay");
+                    LOG_DEBUG_MSG("status okay");
                     ClientContext context2;
 //                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
@@ -137,10 +137,11 @@ public:
                         LOG_DEBUG_MSG("Primary not set, setting ", targets[i], "as primary");
                     }
                     else if (secondary_idx.load() == -1 && primary_idx.load() != i){
-                        secondary_idx.store(i);
                         request.set_is_primary(false);
                         request.set_sec_alive(false);
                         status = server_stubs_[i]->hb_tell(&context2, request, &response);
+                        secondary_idx.store(i);
+
                         LOG_DEBUG_MSG("Secondary not set, setting", targets[i], "as secondary");
                     } else {
                         //do nothing

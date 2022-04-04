@@ -32,6 +32,31 @@ using grpc::Status;
 using grpc::Channel;
 using grpc::ClientContext;
 
+struct MyLock {
+    std::mutex m;
+    void lock_shared() {
+        std::cerr << " + " << &m << "got shared_lock\n";
+        m.lock();
+    }
+    void unlock_shared() {
+        std::cerr << " - " << &m << "rel shared_lock\n";
+        m.unlock();
+    }
+    void lock() {
+        std::cerr << " + " << &m << "got lock\n";
+        m.lock();
+    }
+    void unlock() {
+        std::cerr << " - " << &m << "rel lock\n";
+        m.unlock();
+    }
+    bool try_lock() {
+        const auto ret = m.try_lock();
+        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
+        return ret;
+    }
+};
+
 class gRPCServiceImpl final : public gRPCService::Service {
 private:
     enum class BlockState{DISK, LOCKED, MEMORY};
@@ -50,7 +75,7 @@ private:
     std::unordered_map<int, std::unique_ptr<Info>> temp_data;
     using fut_t = std::future<std::optional<int>>;
     std::deque<fut_t> pending_futures;
-    std::shared_mutex reintegration_lock;
+    MyLock reintegration_lock;
     std::vector<std::mutex> per_block_locks;
     std::fstream file;
     int fd;
@@ -130,6 +155,9 @@ public:
         // change this to get signaled when the entry is removed
         // from the map (write to that block is complete)
         bool can_read_all = false;
+        if (readRequest->address() == 6) {
+            LOG_DEBUG_MSG("backup request to read a block");
+        }
         while(!can_read_all) {
             can_read_all = true;
             for (const int &b: blocks) {
@@ -148,6 +176,9 @@ public:
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
         if (current_server_state_ == ServerState::BACKUP) {
+            if (readRequest->address() == 6) {
+                LOG_DEBUG_MSG("backup request to read a locked block");
+            }
             wait_before_read(readRequest);
         }
         if (get_server_state() == ServerState::BACKUP)
@@ -163,17 +194,17 @@ public:
     }
 
     Status hb_check(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
-        if (temp_data.size() > 0)
-            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
+//        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
+//        if (temp_data.size() > 0)
+//            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
 
         return Status::OK;
     }
 
     Status hb_tell(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
-        if (temp_data.size() > 0)
-            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
+//        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
+//        if (temp_data.size() > 0)
+//            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
 
 //        if (request->has_is_primary()) {
             if (request->is_primary()) {
@@ -219,7 +250,10 @@ public:
     void get_write_locks(const ds::WriteRequest *writeRequest) {
         auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
+        LOG_DEBUG_MSG("Trying to get re_int lock");
+        LOG_DEBUG_MSG("TAKING SHARED LOCK");
         reintegration_lock.lock_shared();
+
         for (const int &block: blocks) {
             per_block_locks[block].lock();
         }
@@ -234,9 +268,10 @@ public:
         for (const int &block: blocks) {
             per_block_locks[block].unlock();
         }
+        LOG_DEBUG_MSG("UNLOKING SHARED LOCK");
         reintegration_lock.unlock_shared();
         for (auto block_num : blocks) {
-            LOG_DEBUG_MSG("locks acquired on ", block_num);
+            LOG_DEBUG_MSG("locks released on ", block_num);
         }
     }
 
@@ -277,7 +312,10 @@ public:
 //                   "Reintegration called on backup");
         LOG_DEBUG_MSG("reintegration phase 2 started, stalling all writes");
         // pause all writes for now!
+        LOG_DEBUG_MSG("TAKING LOCK");
         reintegration_lock.lock();
+        LOG_DEBUG_MSG("size of temp:", temp_data.size());
+
         // return the entries in temp_data that are in MEMORY state.
         // opt_todo: stream the entries instead of returning at once
         for (auto& it: temp_data) {
@@ -296,13 +334,27 @@ public:
                                     ds::ReintegrationResponse* reintegrationResponse) {
 //        assert_msg(current_server_state_ != ServerState::PRIMARY,
 //                   "Reintegration called on backup");
-        this->backup_state = BackupState::ALIVE;
+        LOG_DEBUG_MSG("reintegraton complete lock unlocked");
+        set_backup_state(BackupState::ALIVE);
+        LOG_DEBUG_MSG("RELEASING LOCK");
+        temp_data.clear();
+        LOG_DEBUG_MSG("Size of temp_data", temp_data.size());
         reintegration_lock.unlock();
+        if (reintegration_lock.try_lock()) {
+            LOG_DEBUG_MSG("lock status:", "lock aquired");
+            reintegration_lock.unlock();
+            LOG_DEBUG_MSG("lock status:", "lock released");
+        } else {
+            LOG_DEBUG_MSG("lock status:", "lock not released??");
+        }
+
         return Status::OK;
     }
 
     void secondary_reintegration() {
         LOG_DEBUG_MSG("here");
+
+
 //        assert_msg(current_server_state_ != ServerState::BACKUP,
 //                   "Reintegration called on primary");
         LOG_DEBUG_MSG("here");
@@ -324,9 +376,6 @@ public:
                   reintegration_response.data_lengths(i));
         }
         LOG_DEBUG_MSG("wrote " + std::to_string(reintegration_response.data_size()) + " DISK records");
-        LOG_DEBUG_MSG("PAUSING\n");
-        int debug_integer;
-        std::cin >> debug_integer;
         // get memory based writes
         reintegration_response.clear_data();
         reintegration_response.clear_data_lengths();
@@ -357,7 +406,7 @@ public:
             LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
         }
 
-        set_backup_state(BackupState::ALIVE);
+        //set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("reintegration complete");
     }
 
@@ -374,10 +423,14 @@ public:
             LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
             auto& pf = pending_futures.front();
             if (pf.valid()) {
+                LOG_DEBUG_MSG("future ready, decreasing size of map");
                 const auto addr = pf.get();
-                if (addr.has_value())
+                if (addr) {
+                    LOG_DEBUG_MSG("address found in optional int", *addr);
                     temp_data.erase(addr.value());
+                }
                 pending_futures.pop_front();
+                LOG_DEBUG_MSG("temp_data size:", temp_data.size());
             }
         }
         get_write_locks(writeRequest);
@@ -394,6 +447,9 @@ public:
             ds::AckResponse ackResponse;
             LOG_DEBUG_MSG("sending write to backup");
             Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
+            if (!status.ok()) {
+                LOG_DEBUG_MSG("error ", status.error_code(), status.error_message());
+            }
             LOG_DEBUG_MSG("back from backup");
         }
         LOG_DEBUG_MSG("write from map to file:", writeRequest->data());
@@ -411,32 +467,35 @@ public:
             ClientContext context;
             ds::CommitRequest commitRequest;
             const int waddr = writeRequest->address();
+            LOG_DEBUG_MSG("waddr to ret = ", waddr);
             commitRequest.set_address(waddr);
 
             fut_t f = std::async(std::launch::async,
-                [&]() -> std::optional<int> {
+                [&, waddr]() -> std::optional<int> {
                     ClientContext context;
                     ds::CommitRequest commitRequest;
                     commitRequest.set_address(waddr);
                     ds::AckResponse ackResponse;
-                    if ((stub_->s_commit(&context, commitRequest, &ackResponse)).ok())
+                    if ((stub_->s_commit(&context, commitRequest, &ackResponse)).ok()) {
+                        LOG_DEBUG_MSG("waddr to ret = ", waddr);
                         return waddr;
+                    }
                     return std::nullopt;
             });
 //                f.get();
             pending_futures.push_back(std::move(f));
-            while (pending_futures.size() > 0) {
-                LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
-                auto& pf = pending_futures.front();
-                if (pf.valid()) {
-                    LOG_DEBUG_MSG("future result ready");
-                    const auto addr = pf.get();
-                    LOG_DEBUG_MSG("address is ", addr.value());
-                    if (addr.has_value())
-                        temp_data.erase(addr.value());
-                    pending_futures.pop_front();
-                }
-            }
+//            while (pending_futures.size() > 0) {
+//                LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
+//                auto& pf = pending_futures.front();
+//                if (pf.valid()) {
+//                    LOG_DEBUG_MSG("future result ready");
+//                    const auto addr = pf.get();
+//                    LOG_DEBUG_MSG("address is ", addr.value());
+//                    if (addr.has_value())
+//                        temp_data.erase(addr.value());
+//                    pending_futures.pop_front();
+//                }
+//            }
             LOG_DEBUG_MSG("committed to backup");
         }
         return Status::OK;
@@ -450,6 +509,10 @@ public:
             LOG_DEBUG_MSG("Starting backup server write");
             BlockState state = BlockState::LOCKED;
             temp_data[(int) writeRequest->address()] = std::make_unique<Info>(state, writeRequest->data_length(), writeRequest->data());
+            LOG_DEBUG_MSG("Pausing write in backup server");
+            int debug_integer;
+//            sleep(10);
+            LOG_DEBUG_MSG("waking from sloeep");
         } else {
             LOG_DEBUG_MSG("calling s_write at primary whyyy?");
         }
