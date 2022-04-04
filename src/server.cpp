@@ -397,6 +397,12 @@ public:
         if (!status.ok()) {
             LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
         }
+
+        if (std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_1")) {
+            LOG_DEBUG_MSG("Exiting after reintegration phase 1 completed");
+            exit(1);
+        }
+
         LOG_DEBUG_MSG("received reintegration response at secondary");
         // write all missing writes in the backup
 
@@ -416,6 +422,11 @@ public:
                 &context1, reintegration_request, &reintegration_response);
         if (!status.ok()) {
             LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+        }
+
+        if (std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_2")) {
+            LOG_ERR_MSG("Exiting after reintegration phase 2 completed\n");
+            exit(1);
         }
 
         LOG_DEBUG_MSG("received reintegration phase 2 response at secondary");
@@ -480,6 +491,12 @@ public:
             if (!status.ok()) {
                 LOG_DEBUG_MSG("error ", status.error_code(), status.error_message());
             }
+
+            if (std::getenv("SERVER_CRASH_AFTER_BACKUP_WRITE")) {
+                LOG_ERR_MSG("Exiting after sending write to backup\n");
+                exit(1);
+            }
+
             LOG_DEBUG_MSG("back from backup");
         }
         LOG_DEBUG_MSG("write from map to file:", writeRequest->data());
@@ -512,20 +529,12 @@ public:
                     }
                     return std::nullopt;
             });
-//                f.get();
+            
             pending_futures.push_back(std::move(f));
-//            while (pending_futures.size() > 0) {
-//                LOG_DEBUG_MSG(pending_futures.size(), " Pending future found");
-//                auto& pf = pending_futures.front();
-//                if (pf.valid()) {
-//                    LOG_DEBUG_MSG("future result ready");
-//                    const auto addr = pf.get();
-//                    LOG_DEBUG_MSG("address is ", addr.value());
-//                    if (addr.has_value())
-//                        temp_data.erase(addr.value());
-//                    pending_futures.pop_front();
-//                }
-//            }
+            if (std::getenv("SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT")) {
+                LOG_ERR_MSG("Exiting after sending commit to backup\n");
+                exit(1);
+            }
             LOG_DEBUG_MSG("committed to backup");
         }
         return Status::OK;
