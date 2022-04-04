@@ -109,6 +109,7 @@ private:
     std::vector<std::mutex> per_block_locks;
     std::fstream file;
     int fd;
+    MyLock mapLock;
 public:
     void create_file(const std::string filename) {
         fd = ::open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
@@ -159,6 +160,13 @@ public:
     void transition_to_backup() {
         transition(ServerState::PRIMARY);
         LOG_INFO_MSG(" -> BACKUP");
+    }
+    void writeToMap(const ds::WriteRequest *writeRequest, BlockState* state) {
+        mapLock.lock();
+        LOG_DEBUG_MSG("temp map locked");
+        temp_data[(int)writeRequest->address()] = std::make_unique<Info>(*state, writeRequest->data_length(), writeRequest->data());
+        mapLock.unlock();
+        LOG_DEBUG_MSG("temp map unlocked");
     }
 
     explicit gRPCServiceImpl(
@@ -224,17 +232,11 @@ public:
     }
 
     Status hb_check(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-//        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
-//        if (temp_data.size() > 0)
-//            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
 
         return Status::OK;
     }
 
     Status hb_tell(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-//        LOG_DEBUG_MSG("temp_data_size:", std::to_string(temp_data.size()));
-//        if (temp_data.size() > 0)
-//            LOG_DEBUG_MSG("info->state", temp_data[0]->state == BlockState::DISK ? "DISK" : "NOT_DISK");
 
 //        if (request->has_is_primary()) {
             if (request->is_primary()) {
@@ -478,9 +480,7 @@ public:
         BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
         LOG_DEBUG_MSG("Backup state:", backup_state == BackupState::REINTEGRATION ? "r" : "not r");
         LOG_DEBUG_MSG("wrtiing in primary with state ", ((state == BlockState::DISK) ? "DISK" : "MEM"));
-//        Info info = {};
-        // TODO: make map thread safe
-        temp_data[(int)writeRequest->address()] = std::make_unique<Info>(state, writeRequest->data_length(), writeRequest->data());
+        writeToMap(writeRequest, &state);
 
         LOG_DEBUG_MSG("temp_data size:" + std::to_string(temp_data.size()));
         if (backup_state == BackupState::ALIVE) {
@@ -529,7 +529,7 @@ public:
                     }
                     return std::nullopt;
             });
-            
+
             pending_futures.push_back(std::move(f));
             if (std::getenv("SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT")) {
                 LOG_ERR_MSG("Exiting after sending commit to backup\n");
@@ -547,7 +547,7 @@ public:
         if (current_server_state_ == ServerState::BACKUP) {
             LOG_DEBUG_MSG("Starting backup server write");
             BlockState state = BlockState::LOCKED;
-            temp_data[(int) writeRequest->address()] = std::make_unique<Info>(state, writeRequest->data_length(), writeRequest->data());
+            writeToMap(writeRequest, &state);
             LOG_DEBUG_MSG("Pausing write in backup server");
             int debug_integer;
 //            sleep(10);
