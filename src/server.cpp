@@ -33,26 +33,56 @@ using grpc::Channel;
 using grpc::ClientContext;
 
 struct MyLock {
-    std::mutex m;
+
+    std::atomic<int> shared_lock_acquired;
+    std::atomic<int> lock_acquired;
+
+    MyLock() {
+        shared_lock_acquired = 0;
+        lock_acquired = 0;
+    }
     void lock_shared() {
-        std::cerr << " + " << &m << "got shared_lock\n";
-        m.lock();
+//        std::cerr << " + " << &m << "got shared_lock\n";
+        while(true) {
+            if (lock_acquired == 1) {
+               u_sleep(1);
+            }
+            if (!lock_acquired) {
+                shared_lock_acquired += 1 ;
+                return;
+            }
+        }
     }
     void unlock_shared() {
-        std::cerr << " - " << &m << "rel shared_lock\n";
-        m.unlock();
+        shared_lock_acquired -= 1;
+        ASS(shared_lock_acquired < 0, "SHARED_LOCK count can't be negative");
     }
     void lock() {
-        std::cerr << " + " << &m << "got lock\n";
-        m.lock();
+        while(1) {
+            if (shared_lock_acquired == 0) {
+                if (lock_acquired == 0) {
+                    lock_acquired = 1;
+                    return;
+                }
+            }
+            u_sleep(1);
+        }
     }
     void unlock() {
-        std::cerr << " - " << &m << "rel lock\n";
-        m.unlock();
+        if (lock_acquired) {
+            lock_acquired = 0;
+        }
     }
     bool try_lock() {
-        const auto ret = m.try_lock();
-        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
+        const bool ret;
+        if (lock_acquired) {
+            ret = false;
+        } else {
+            lock_acquired = 1;
+            ret = true;
+        }
+
+//        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
         return ret;
     }
 };
