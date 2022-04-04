@@ -563,8 +563,11 @@ int main(int argc, char *argv[]) {
 //        LOG_DEBUG_MSG("Starting backup");
 //    }
     std::string server_address(ip + ":"+ my_port);
-    gRPCServiceImpl service(grpc::CreateChannel("localhost:" + friend_port,
-        grpc::InsecureChannelCredentials()), datafile);
+    grpc::ChannelArguments args;
+    args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
+
+    gRPCServiceImpl service(grpc::CreateCustomChannel("localhost:" + friend_port,
+        grpc::InsecureChannelCredentials(), args), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.SetMaxSendMessageSize(INT_MAX);

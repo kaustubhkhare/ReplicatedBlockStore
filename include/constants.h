@@ -7,6 +7,7 @@ namespace constants {
     inline constexpr int TOTAL_BLOCKS {64000000};
     inline constexpr int PRIMARY_PORT {8083};
     inline constexpr int BACKUP_PORT {8084};
+    inline constexpr int MAX_RECONN_TIMEOUT {500};
 }
 
 #endif //PROJECT3_CONSTANTS_H

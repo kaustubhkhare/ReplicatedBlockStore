@@ -204,12 +204,15 @@ int main(int argc, char *argv[]) {
             v = get_separated(std::string(argv[i + 1]), ',');
         }
     }
+    grpc::ChannelArguments args;
+    args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
+
     std::string server_address(ip + ":" + port);
     std::vector<std::string> targets {v[0],
                                       v[1]};
     std::vector<std::shared_ptr<::grpc::Channel>> channels {
-        grpc::CreateChannel(targets[0], grpc::InsecureChannelCredentials()),
-        grpc::CreateChannel(targets[1], grpc::InsecureChannelCredentials())
+        grpc::CreateCustomChannel(targets[0], grpc::InsecureChannelCredentials(), args),
+        grpc::CreateCustomChannel(targets[1], grpc::InsecureChannelCredentials(), args)
     };
 
     LBServiceImpl service(channels, targets);
