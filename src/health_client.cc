@@ -115,7 +115,7 @@ public:
                             LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1. Secondary also dead.");
                             primary_idx.store(-1);
                         } else
-                            LOG_DEBUG_MSG("Backup at", targets[i], "went down, setting backup as dead");
+                            LOG_DEBUG_MSG("Backup at", targets[i], " went down, setting backup as dead");
                     } else {
                         //
                     }
@@ -134,7 +134,7 @@ public:
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
                         status = server_stubs_[i]->hb_tell(&context2, request, &response);
-                        LOG_DEBUG_MSG("Primary not set, setting ", targets[i], "as primary");
+                        LOG_DEBUG_MSG("Primary not set, setting ", targets[i], " as primary");
                     }
                     else if (secondary_idx.load() == -1 && primary_idx.load() != i){
                         request.set_is_primary(false);
@@ -142,7 +142,7 @@ public:
                         status = server_stubs_[i]->hb_tell(&context2, request, &response);
                         secondary_idx.store(i);
 
-                        LOG_DEBUG_MSG("Secondary not set, setting", targets[i], "as secondary");
+                        LOG_DEBUG_MSG("Secondary not set, setting", targets[i], " as secondary");
                     } else {
                         //do nothing
                     }
@@ -188,18 +188,16 @@ std::vector<std::string> get_separated(std::string str, char delimiter) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 7) {
-        printf("Usage : ./health_client -ip <ip> -port <port> -hosts <comma sep host:port>\n");
+    if (argc < 5) {
+        printf("Usage : ./health_client -self <selfIP:port> -hosts <comma sep host:port>\n");
         return 0;
     }
 
-    std::string ip{"0.0.0.0"}, port{"60051"};
+    std::string server_address{"localhost:60052"};
     std::vector<std::string> v;
     for (int i = 1; i < argc - 1; ++i) {
-        if (!strcmp(argv[i], "-ip")) {
-            ip = std::string{argv[i+1]};
-        } else if (!strcmp(argv[i], "-port")) {
-            port = std::string{argv[i+1]};
+        if (!strcmp(argv[i], "-self")) {
+            server_address = std::string{argv[i+1]};
         } else if (!strcmp(argv[i], "-hosts")) {
             v = get_separated(std::string(argv[i + 1]), ',');
         }
@@ -207,7 +205,6 @@ int main(int argc, char *argv[]) {
     grpc::ChannelArguments args;
     args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
 
-    std::string server_address(ip + ":" + port);
     std::vector<std::string> targets {v[0],
                                       v[1]};
     std::vector<std::shared_ptr<::grpc::Channel>> channels {
