@@ -45,7 +45,7 @@ struct MyLock {
 //        std::cerr << " + " << &m << "got shared_lock\n";
         while(true) {
             if (lock_acquired == 1) {
-               u_sleep(1);
+               usleep(1);
             }
             if (!lock_acquired) {
                 shared_lock_acquired += 1 ;
@@ -65,7 +65,7 @@ struct MyLock {
                     return;
                 }
             }
-            u_sleep(1);
+            usleep(1);
         }
     }
     void unlock() {
@@ -74,7 +74,7 @@ struct MyLock {
         }
     }
     bool try_lock() {
-        const bool ret;
+        bool ret;
         if (lock_acquired) {
             ret = false;
         } else {
@@ -567,36 +567,26 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-//    if(argc < 7) {
-//        printf("Usage : ./server -ip <ip> -port <port> -datafile <datafile>\n");
-//        return 0;
-//    }
+    if(argc < 7) {
+        printf("Usage : ./server -self <myIP:port> -other <otherIP:port> -datafile <datafile>\n");
+        return 0;
+    }
 
-//    for(int i = 1; i < argc - 1; ++i) {
-//        if(!strcmp(argv[i], "-ip")) {
-//            ip = std::string{argv[i+1]};
-//        } else if(!strcmp(argv[i], "-port")) {
-//            port = std::string{argv[i+1]};
-//        } else if (!strcmp(argv[i], "-datafile")) {
-//            datafile = std::string{argv[i+1]};
-//        }
-//    }
-    std::string ip{"0.0.0.0"}, datafile{"data"};;
-    std::string my_port = argv[1], friend_port = argv[2];
-//    if (strcmp(argv[1], "primary")) {
-//        my_port = constants::PRIMARY_PORT;
-//        friend_port = constants::BACKUP_PORT;
-        LOG_DEBUG_MSG("Starting myself at ", argv[1], " sec channel at ", argv[2]);
-//    } else if (strcmp(argv[1], "backup")){
-//        my_port = constants::BACKUP_PORT;
-//        friend_port = constants::PRIMARY_PORT;
-//        LOG_DEBUG_MSG("Starting backup");
-//    }
-    std::string server_address(ip + ":"+ my_port);
+    std::string server_address{"localhost:60052"}, other_address{"localhost:60053"}, datafile{"data"};
+    for(int i = 1; i < argc - 1; ++i) {
+        if(!strcmp(argv[i], "-self")) {
+            server_address = std::string{argv[i+1]};
+        } else if (!strcmp(argv[i], "-other")) {
+            other_address = std::string{argv[i+1]};
+        } else if (!strcmp(argv[i], "-datafile")) {
+            datafile = std::string{argv[i+1]};
+        }
+    }
+
     grpc::ChannelArguments args;
     args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
 
-    gRPCServiceImpl service(grpc::CreateCustomChannel("localhost:" + friend_port,
+    gRPCServiceImpl service(grpc::CreateCustomChannel(other_address,
         grpc::InsecureChannelCredentials(), args), datafile);
     ServerBuilder builder;
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -605,6 +595,6 @@ int main(int argc, char *argv[]) {
     builder.SetMaxMessageSize(INT_MAX);
     builder.RegisterService(&service);
     std::unique_ptr<Server> server(builder.BuildAndStart());
-    std::cerr << "Server listening on " << server_address << std::endl;
+    std::cout << "Server listening on " << server_address << std::endl;
     server->Wait();
 }
