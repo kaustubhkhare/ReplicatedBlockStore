@@ -155,6 +155,13 @@ public:
     }
     void transition_to_primary() {
         transition(ServerState::BACKUP);
+        // set LOCKED state blocks to DISK state
+        for (auto& it: temp_data) {
+            auto &info = it.second;
+            if (info->state == BlockState::LOCKED) {
+                info->state = BlockState::DISK;
+            }
+        }
         LOG_INFO_MSG(" -> PRIMARY");
     }
     void transition_to_backup() {
