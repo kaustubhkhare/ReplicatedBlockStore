@@ -12,7 +12,7 @@ std::string get_string_with_length(int length, int iteration=1) {
 }
 
 int test4(int argc, char *argv[]) {
-    auto client = GRPCClient::get_client(argc, argv);
+    auto client = *GRPCClient::get_client(argc, argv);
     //read/write aligned reads/writes
     int iteration = 0;
     int length = 100, address_size = 100;
