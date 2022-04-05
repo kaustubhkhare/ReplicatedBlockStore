@@ -154,7 +154,7 @@ public:
 			    "concurrent attempt to do state transition?");
     }
     void transition_to_primary() {
-        transition(ServerState::BACKUP);
+        set_server_state(ServerState::PRIMARY);
         // set LOCKED state blocks to DISK state
         for (auto& it: temp_data) {
             auto &info = it.second;
@@ -248,7 +248,8 @@ public:
 //        if (request->has_is_primary()) {
             if (request->is_primary()) {
                 LOG_DEBUG_MSG("becoming primary");
-                set_server_state(ServerState::PRIMARY);
+                transition_to_primary();
+
             } else {
                 LOG_DEBUG_MSG("becoming secondary");
                 set_server_state(ServerState::BACKUP);
