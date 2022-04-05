@@ -1,3 +1,4 @@
+#pragma once
 #include <thread>
 #include <iostream>
 #include <vector>
@@ -8,7 +9,7 @@ class Stats {
 public:
     Stats(): name("unnnamed"){}
     Stats(const std::string name_): name("thrift_" + std::move(name_)) {}
-    void add(uint64_t ns) {
+    inline void add(uint64_t ns) {
         stats.push_back(ns);
     }
     ~Stats() {
@@ -29,7 +30,7 @@ struct Clocker {
     const std::chrono::time_point<std::chrono::high_resolution_clock> start;
     Stats& stats;
     Clocker(Stats& stat): start(std::chrono::high_resolution_clock::now()), stats(stat){}
-    uint64_t get_ns() const {
+    inline uint64_t get_ns() const {
         using namespace std::chrono;
         return duration_cast<nanoseconds>(high_resolution_clock::now() - start).count();
     }
@@ -39,7 +40,7 @@ struct Clocker {
 };
 
 template <class C>
-void run_test(std::string name, C& client, const std::vector<int>& read_addr,
+inline void run_test(std::string name, C& client, const std::vector<int>& read_addr,
               const std::vector<int>& write_addr, int rthread = 1,
               int wthread = 1, bool rw_seq = true)
 {

@@ -43,7 +43,7 @@ private:
     long double lease_duration;
     std::string compare;
 
-    static std::string hash_str(const char* src) {
+    inline static std::string hash_str(const char* src) {
         auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
         SHA256(reinterpret_cast<const unsigned char*>(src), strlen(src),
                digest.get());
@@ -55,7 +55,7 @@ private:
         return ss.str();
     }
 public:
-    static GRPCClient* get_client(int argc, char** argv) {
+    inline static GRPCClient* get_client(int argc, char** argv) {
         if (argc < 5) {
             printf("Usage : ./client -lb <lbIp:port> -compare <1 or 0>\n");
             return NULL;
