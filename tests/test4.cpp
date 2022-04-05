@@ -33,7 +33,7 @@ int test4(int argc, char *argv[]) {
         ASS(!v.compare(read_str), std::string("WRITE AND READ NOT SAME:") +
                                  v +
                                  std::string(",") +
-                                 std::to_string(read_str));
+                                 read_str);
     }
     return 0;
 }
