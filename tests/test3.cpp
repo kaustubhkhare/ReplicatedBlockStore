@@ -1,4 +1,3 @@
-#include "test_helper.h"
 #include "client.h"
 #include <type_traits>
 #include <iostream>
