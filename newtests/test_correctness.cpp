@@ -34,12 +34,14 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < address_size; i++) {
         addresses.push_back(i + rand() % constants::BLOCK_SIZE);
     }
-
+    int i = 0;
     while (1) {
+        std::cout << "Iteration #" << i++ << '\n';
         int offset = addresses[iteration % address_size];
         std::string v = get_string_with_length(length, iteration++);
-
+        std::cout << "Write @ " << offset << '\n';
         client.write(offset, v.size(), v.c_str());
+        std::cout << "Read @ " << offset << '\n';
         std::string read_str = client.read(offset, length);
         ASS(!v.strcmp(read_str), std::to_string("WRITE AND READ NOT SAME:") +
                                                 v +
