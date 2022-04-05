@@ -9,6 +9,7 @@
 std::string get_string_with_length(int length, int iteration=1) {
     std::string a = std::to_string(iteration);
     a.append(length - a.size(), iteration);
+    return a;
 }
 
 int test4(int argc, char *argv[]) {
