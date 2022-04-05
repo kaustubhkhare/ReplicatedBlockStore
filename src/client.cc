@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
             std::cin >> offset;
             std::cout << "Enter length:";
             std::cin >> length;
-            std::string read_str = client.read(offset, length);
+            std::string read_str = client->read(offset, length);
             std::cout << read_str << "\n";
         } else if (command == "w") {
             std::string v;
@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
                 std::cout << "Enter string:";
                 std::cin >> v;
             }
-            client.write(offset, length, v.c_str());
+            client->write(offset, length, v.c_str());
         } else {
             break;
         }
