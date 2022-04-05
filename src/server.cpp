@@ -32,58 +32,58 @@ using grpc::Status;
 using grpc::Channel;
 using grpc::ClientContext;
 
-struct MyLock {
-
-    std::atomic<int> shared_lock_acquired;
-    std::atomic<int> lock_acquired;
-
+class MyLock {
+    static std::mutex m;
+    unsigned int readers: 20;
+    unsigned int waiting_writers: 10;
+    unsigned int writer: 1;
+public:
     MyLock() {
-        shared_lock_acquired = 0;
-        lock_acquired = 0;
+        waiting_writers = readers = writer = 0;
     }
     void lock_shared() {
-//        std::cerr << " + " << &m << "got shared_lock\n";
-        while(true) {
-            if (lock_acquired == 1) {
-               usleep(1);
+        while (1) {
+            {
+                std::lock_guard l(m);
+                if (waiting_writers + writer == 0) {
+                    readers++;
+                    break;
+                }
             }
-            if (!lock_acquired) {
-                shared_lock_acquired += 1 ;
-                return;
-            }
+            usleep(10);
         }
     }
     void unlock_shared() {
-        shared_lock_acquired -= 1;
-        ASS(shared_lock_acquired < 0, "SHARED_LOCK count can't be negative");
+        std::lock_guard l(m);
+        assert(readers-- > 0);
     }
     void lock() {
-        while(1) {
-            if (shared_lock_acquired == 0) {
-                if (lock_acquired == 0) {
-                    lock_acquired = 1;
-                    return;
+        int expected = 0;
+        while (1) {
+            {
+                std::lock_guard l(m);
+                if (writer + readers + waiting_writers == expected) {
+                    writer = 1;
+                    break;
+                } else if (expected == 0) {
+                    waiting_writers++;
+                    expected++;
                 }
             }
-            usleep(1);
+            usleep(10);
         }
     }
     void unlock() {
-        if (lock_acquired) {
-            lock_acquired = 0;
-        }
+        std::lock_guard l(m);
+        assert(writer-- == 1);
     }
     bool try_lock() {
-        bool ret;
-        if (lock_acquired) {
-            ret = false;
-        } else {
-            lock_acquired = 1;
-            ret = true;
+        std::lock_guard l(m);
+        if (writer + readers + waiting_writers == 0) {
+            writer = 1;
+            return true;
         }
-
-//        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
-        return ret;
+        return false;
     }
 };
 
@@ -406,8 +406,8 @@ public:
         if (!status.ok()) {
             LOG_ERR_MSG("error: ", status.error_code(), status.error_message());
         }
-
-        if (std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_1")) {
+        const static bool SERVER_CRASH_AFTER_REINTEGRATION_PHASE_1 = std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_1");
+        if (SERVER_CRASH_AFTER_REINTEGRATION_PHASE_1) {
             LOG_DEBUG_MSG("Exiting after reintegration phase 1 completed");
             exit(1);
         }
@@ -433,7 +433,8 @@ public:
             LOG_ERR_MSG("error: ", status.error_code(), status.error_message());
         }
 
-        if (std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_2")) {
+        const static bool SERVER_CRASH_AFTER_REINTEGRATION_PHASE_2 = std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_2");
+        if (SERVER_CRASH_AFTER_REINTEGRATION_PHASE_2) {
             LOG_ERR_MSG("Exiting after reintegration phase 2 completed\n");
             exit(1);
         }
@@ -499,7 +500,8 @@ public:
                 LOG_ERR_MSG("error ", status.error_code(), status.error_message());
             }
 
-            if (std::getenv("SERVER_CRASH_AFTER_BACKUP_WRITE")) {
+            const static bool SERVER_CRASH_AFTER_BACKUP_WRITE = std::getenv("SERVER_CRASH_AFTER_BACKUP_WRITE");
+            if (SERVER_CRASH_AFTER_BACKUP_WRITE) {
                 LOG_ERR_MSG("Exiting after sending write to backup\n");
                 exit(1);
             }
@@ -538,7 +540,8 @@ public:
             });
 
             pending_futures.push_back(std::move(f));
-            if (std::getenv("SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT")) {
+            const static bool SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT = std::getenv("SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT");
+            if (SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT) {
                 LOG_ERR_MSG("Exiting after sending commit to backup\n");
                 exit(1);
             }
@@ -581,7 +584,7 @@ public:
         ::close(fd);
     }
 };
-
+std::mutex MyLock::m;
 int main(int argc, char *argv[]) {
     if(argc < 7) {
         printf("Usage : ./server -self <myIP:port> -other <otherIP:port> -datafile <datafile>\n");
