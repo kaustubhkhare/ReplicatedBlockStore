@@ -8,7 +8,7 @@
 
 std::string get_string_with_length(int length, int iteration=1) {
     std::string a = std::to_string(iteration);
-    a.append(length - a.size(), iteration);
+    a.append(length - a.size(), '0' + (rand() % 10));
     return a;
 }
 
