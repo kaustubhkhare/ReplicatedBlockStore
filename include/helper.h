@@ -17,7 +17,7 @@ static inline long double time_monotonic() {
 }
 
 #define ASS(cond, msg) assert_msg(cond, std::string(__PRETTY_FUNCTION__) + std::string(" assert fail w msg: ") + std::string(msg));
-void assert_msg(bool cond, const std::string& msg) {
+inline void assert_msg(bool cond, const std::string& msg) {
 	if (!cond) {
 		throw std::logic_error(msg);
 	}
