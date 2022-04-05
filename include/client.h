@@ -135,7 +135,7 @@ public:
         }
 
         if (!status.ok()) {
-            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(),
+            LOG_ERR_MSG("Error in reading ErrorCode: ", status.error_code(),
                           " Error: ", status.error_message());
             discover_servers(false);
             return "ERROR";
@@ -161,7 +161,7 @@ public:
         LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
 
         if (!status.ok()){
-            LOG_DEBUG_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            LOG_ERR_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
             discover_servers(false);
             return ENONET;
         }
@@ -178,7 +178,7 @@ public:
         Status status = lb_stub_->get_servers(&context, request, &response);
 
         if (!status.ok()) {
-            LOG_DEBUG_MSG("Server discovery failed ErrorCode: ", status.error_code(), " Error: ", status.error_message());
+            LOG_ERR_MSG("Server discovery failed ErrorCode: ", status.error_code(), " Error: ", status.error_message());
         } else {
             if (initialization) {
                 servers.clear();

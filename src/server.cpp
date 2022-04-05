@@ -397,7 +397,7 @@ public:
         Status status = stub_->p_reintegration(
                 &context, reintegration_request, &reintegration_response);
         if (!status.ok()) {
-            LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+            LOG_ERR_MSG("error: ", status.error_code(), status.error_message());
         }
 
         if (std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_1")) {
@@ -423,7 +423,7 @@ public:
         status = stub_->p_reintegration_phase_two(
                 &context1, reintegration_request, &reintegration_response);
         if (!status.ok()) {
-            LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+            LOG_ERR_MSG("error: ", status.error_code(), status.error_message());
         }
 
         if (std::getenv("SERVER_CRASH_AFTER_REINTEGRATION_PHASE_2")) {
@@ -446,7 +446,7 @@ public:
         status = stub_->p_reintegration_complete(
             &context2, reintegration_request, &reintegration_response);
         if (!status.ok()) {
-            LOG_DEBUG_MSG("error: ", status.error_code(), status.error_message());
+            LOG_ERR_MSG("error: ", status.error_code(), status.error_message());
         }
 
         //set_backup_state(BackupState::ALIVE);
@@ -489,7 +489,7 @@ public:
             LOG_DEBUG_MSG("sending write to backup");
             Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
             if (!status.ok()) {
-                LOG_DEBUG_MSG("error ", status.error_code(), status.error_message());
+                LOG_ERR_MSG("error ", status.error_code(), status.error_message());
             }
 
             if (std::getenv("SERVER_CRASH_AFTER_BACKUP_WRITE")) {
