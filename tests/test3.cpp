@@ -14,6 +14,24 @@ std::string get_string_with_length_3(int length, int iteration=1) {
 }
 
 int test3(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("Usage : ./client -lb <lbIp:port> -compare <1 or 0>\n");
+        return 0;
+    }
+
+    std::string server_address{"localhost:60052"}, cmp{"0"};
+    for (int i = 1; i < argc - 1; ++i) {
+        if(!strcmp(argv[i], "-lb")) {
+            server_address = std::string{argv[i+1]};
+        } else if(!strcmp(argv[i], "-compare")) {
+            cmp = std::string{argv[i+1]};
+        }
+    }
+    LOG_DEBUG_MSG("Connecting to ", server_address);
+
+    grpc::ChannelArguments args;
+    args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
+
     auto client = GRPCClient::get_client(argc, argv);
     //read/write aligned reads/writes
     int iteration = 0;
