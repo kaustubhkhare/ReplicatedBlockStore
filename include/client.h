@@ -41,6 +41,7 @@ private:
     int secondary_idx;
     long double lease_start;
     long double lease_duration;
+    std::string compare;
 
     static std::string hash_str(const char* src) {
         auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
@@ -54,28 +55,36 @@ private:
         return ss.str();
     }
 public:
-    static GRPCClient get_client(int argc, char** argv) {
-        std::string ip{"0.0.0.0"}, port{"60051"};
+    static GRPCClient* get_client(int argc, char** argv) {
+        if (argc < 5) {
+            printf("Usage : ./client -lb <lbIp:port> -compare <1 or 0>\n");
+            return NULL;
+        }
+
+        std::string server_address{"localhost:60052"}, cmp{"0"};
         for (int i = 1; i < argc - 1; ++i) {
-            if(!strcmp(argv[i], "-ip")) {
-                ip = std::string{argv[i+1]};
-            } else if(!strcmp(argv[i], "-port")) {
-                port = std::string{argv[i+1]};
+            if(!strcmp(argv[i], "-lb")) {
+                server_address = std::string{argv[i+1]};
+            } else if(!strcmp(argv[i], "-compare")) {
+                cmp = std::string{argv[i+1]};
             }
         }
-        std::string server_address(ip + ":" + port);
         LOG_DEBUG_MSG("Connecting to ", server_address);
 
         grpc::ChannelArguments args;
         args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
 
-        GRPCClient client(grpc::CreateCustomChannel(server_address, grpc::InsecureChannelCredentials(), args));
-        client.discover_servers(true);
+        auto client = new GRPCClient(grpc::CreateCustomChannel(server_address, grpc::InsecureChannelCredentials(), args), cmp);
+        client->discover_servers(true);
+
         return client;
     }
-    GRPCClient(std::shared_ptr<Channel> lb_channel) : lb_stub_(LBService::NewStub(lb_channel)) {}
 
-    inline std::string read(int address, int length) {
+    GRPCClient(std::shared_ptr<Channel> lb_channel, std::string cmp) : lb_stub_(LBService::NewStub(lb_channel)) {
+        compare = cmp;
+    }
+
+   inline std::string read(int address, int length) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
         LOG_DEBUG_MSG("Starting read");
@@ -89,22 +98,35 @@ public:
 
         int server = rand() % 2;
         if (secondary_idx != -1) {
-//            if (server == 1) {
+            if (compare == "1") {
                 ClientContext context;
                 LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
                 status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
                 LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
-//            } else {
-                ClientContext context2;
 
+                ClientContext context2;
                 LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
                 status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
                 LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
-//            }
-            if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
-                LOG_DEBUG_MSG("primary backup data not matching");
-             } else {
-                LOG_DEBUG_MSG("data committed to backup");
+
+                if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
+                    LOG_DEBUG_MSG("primary backup data not matching");
+                } else {
+                    LOG_DEBUG_MSG("data committed to backup");
+                }
+            } else {
+                if (server == 1) {
+                    ClientContext context;
+                    LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
+                    status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
+                    LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
+                } else {
+                    ClientContext context2;
+
+                    LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+                    status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
+                    LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+                }
             }
         } else {
             LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
@@ -121,7 +143,7 @@ public:
         return readResponse_p.data();
     }
 
-    inline int write(int address, int length, const char* wr_buffer) {
+   inline int write(int address, int length, const char* wr_buffer) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
         LOG_DEBUG_MSG("Starting client write");
@@ -132,8 +154,10 @@ public:
         writeRequest.set_data_length(length);
         writeRequest.set_data(wr_buffer);
 
-        LOG_DEBUG_MSG("Sending write to server ", primary_idx, "->", servers[primary_idx]);
+        LOG_DEBUG_MSG("Sending write to server");
+        LOG_DEBUG_MSG("primary is ", servers.at(primary_idx));
         Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
+
         LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
 
         if (!status.ok()){
@@ -144,7 +168,7 @@ public:
         return writeResponse.bytes_written();
     }
 
-    inline void discover_servers(bool initialization) {
+   inline void discover_servers(bool initialization) {
         LOG_DEBUG_MSG("Starting discovery with initialization ", initialization);
         ClientContext context;
         ds::ServerDiscoveryResponse response;

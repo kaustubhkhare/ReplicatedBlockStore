@@ -23,6 +23,7 @@
 
 #include "constants.h"
 #include "helper.h"
+#include "client.h"
 
 using grpc::Channel;
 using grpc::ClientContext;
@@ -32,156 +33,6 @@ using grpc::Status;
 using ds::gRPCService;
 using ds::LBService;
 
-class GRPCClient {
-private:
-    std::unique_ptr<LBService::Stub> lb_stub_;
-    std::vector<std::unique_ptr<gRPCService::Stub>> server_stubs_;
-    std::vector<std::string> servers;
-    int primary_idx;
-    int secondary_idx;
-    long double lease_start;
-    long double lease_duration;
-    std::string compare;
-
-    static std::string hash_str(const char* src) {
-        auto digest = std::make_unique<unsigned char[]>(SHA256_DIGEST_LENGTH);
-        SHA256(reinterpret_cast<const unsigned char*>(src), strlen(src),
-               digest.get());
-        std::stringstream ss;
-        for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-            ss << std::hex << std::setw(2) << std::setfill('0')
-               << static_cast<int>(digest[i]);
-        }
-        return ss.str();
-    }
-public:
-    GRPCClient(std::shared_ptr<Channel> lb_channel, std::string cmp) : lb_stub_(LBService::NewStub(lb_channel)) {
-        compare = cmp;
-    }
-
-    std::string read(int address, int length) {
-        if (time_monotonic() > (lease_start + lease_duration))
-            discover_servers(false);
-        LOG_DEBUG_MSG("Starting read");
-        ds::ReadResponse readResponse_p;
-        ds::ReadResponse readResponse_b;
-        ClientContext context;
-        ds::ReadRequest readRequest;
-        readRequest.set_data_length(length);
-        readRequest.set_address(address);
-        Status status;
-
-        int server = rand() % 2;
-        if (secondary_idx != -1) {
-            if (compare == "1") {
-                ClientContext context;
-                LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
-                status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
-                LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
-
-                ClientContext context2;
-                LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
-                status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
-                LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
-
-                if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
-                    LOG_DEBUG_MSG("primary backup data not matching");
-                } else {
-                    LOG_DEBUG_MSG("data committed to backup");
-                }
-            } else {
-                if (server == 1) {
-                    ClientContext context;
-                    LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
-                    status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
-                    LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
-                } else {
-                    ClientContext context2;
-
-                    LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
-                    status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
-                    LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
-                }
-            }
-        } else {
-            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
-            status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
-            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
-        }
-
-        if (!status.ok()) {
-            LOG_DEBUG_MSG("Error in reading ErrorCode: ", status.error_code(),
-                          " Error: ", status.error_message());
-            discover_servers(false);
-            return "ERROR";
-        }
-        return readResponse_p.data();
-    }
-
-    int write(int address, int length, const char* wr_buffer) {
-        if (time_monotonic() > (lease_start + lease_duration))
-            discover_servers(false);
-        LOG_DEBUG_MSG("Starting client write");
-        ClientContext context;
-        ds::WriteResponse writeResponse;
-        ds::WriteRequest writeRequest;
-        writeRequest.set_address(address);
-        writeRequest.set_data_length(length);
-        writeRequest.set_data(wr_buffer);
-
-        LOG_DEBUG_MSG("Sending write to server");
-        LOG_DEBUG_MSG("primary is ", servers.at(primary_idx));
-        Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
-
-        LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
-
-        if (!status.ok()){
-            LOG_DEBUG_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
-            discover_servers(false);
-            return ENONET;
-        }
-        return writeResponse.bytes_written();
-    }
-
-    void discover_servers(bool initialization) {
-        LOG_DEBUG_MSG("Starting discovery with initialization ", initialization);
-        ClientContext context;
-        ds::ServerDiscoveryResponse response;
-        ds::ServerDiscoveryRequest request;
-        request.set_is_initial(initialization);
-
-        Status status = lb_stub_->get_servers(&context, request, &response);
-
-        if (!status.ok()) {
-            LOG_DEBUG_MSG("Server discovery failed ErrorCode: ", status.error_code(), " Error: ", status.error_message());
-        } else {
-            if (initialization) {
-                servers.clear();
-                grpc::ChannelArguments args;
-                args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
-
-                for (int i = 0; i < response.hosts_size(); i++) {
-                    servers.push_back(response.hosts(i));
-                    LOG_DEBUG_MSG(servers[i]);
-                    server_stubs_.push_back(gRPCService::NewStub(grpc::CreateCustomChannel(servers[i],
-                        grpc::InsecureChannelCredentials(), args)));
-                }
-            }
-            primary_idx = response.primary();
-            secondary_idx = response.secondary();
-            lease_start = response.lease_start();
-            lease_duration = response.lease_duration();
-
-//            server_stubs_[primary_idx] = gRPCService::NewStub(
-//                    grpc::CreateChannel(servers[primary_idx], grpc::InsecureChannelCredentials()));
-//            server_stubs_[secondary_idx] = gRPCService::NewStub(
-//                    grpc::CreateChannel(servers[secondary_idx], grpc::InsecureChannelCredentials()));
-
-            LOG_DEBUG_MSG("Server discovery completed. Primary=", servers[primary_idx], " Secondary=", servers[secondary_idx]);
-        }
-
-    }
-};
 
 int main(int argc, char *argv[]) {
     if (argc < 5) {
@@ -202,8 +53,7 @@ int main(int argc, char *argv[]) {
     grpc::ChannelArguments args;
     args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, constants::MAX_RECONN_TIMEOUT);
 
-    GRPCClient client(grpc::CreateCustomChannel(server_address, grpc::InsecureChannelCredentials(), args), cmp);
-    client.discover_servers(true);
+    auto client = GRPCClient::get_client(argc, argv);
 
     while (true) {
         std::string command;
