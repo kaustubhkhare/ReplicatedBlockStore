@@ -47,9 +47,9 @@ int test4(int argc, char *argv[]) {
         client.write(offset, v.size(), v.c_str());
         std::cout << "Read @ " << offset << '\n';
         std::string read_str = client.read(offset, length);
-        ASS(!v.strcmp(read_str), std::to_string("WRITE AND READ NOT SAME:") +
+        ASS(!v.strcmp(read_str), std::string("WRITE AND READ NOT SAME:") +
                                  std::to_string(v) +
-                                 std::to_string(",") +
+                                 std::string(",") +
                                  std::to_string(read_str));
     }
     return 0;
