@@ -1,2 +1,4 @@
 REG_TEST(1);
 REG_TEST(2);
+REG_TEST(3);
+REG_TEST(4);
