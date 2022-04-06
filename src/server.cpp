@@ -60,6 +60,7 @@ public:
                 }
             }
             usleep(10);
+            LOG_DEBUG_MSG("Can't get the shared lock?");
         }
     }
     void unlock_shared() {
