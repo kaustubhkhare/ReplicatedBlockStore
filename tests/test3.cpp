@@ -44,6 +44,7 @@ int test3(int argc, char *argv[]) {
     }
     int i = 0;
     while (1) {
+        sleep(2);
         std::cout << "Iteration #" << i++ << '\n';
         int offset = addresses[iteration % address_size];
         std::string v = get_string_with_length_3(length, iteration++);

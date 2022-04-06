@@ -56,7 +56,6 @@ int main(int argc, char *argv[]) {
     auto client = GRPCClient::get_client(argc, argv);
 
     while (true) {
-        sleep(3);
         std::string command;
         int offset;
         int length;
