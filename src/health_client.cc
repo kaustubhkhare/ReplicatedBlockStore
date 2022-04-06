@@ -103,14 +103,12 @@ public:
                             if (!status.ok()) {
                                 LOG_ERR_MSG("Secondary ", secondary_idx.load(),
                                             " also not available. Setting primary -1 and secondary -1");
-                                secondary_idx.store(-1);
                             } else {
                                 assign_new_primary();
-                                secondary_idx.store(-1);
-                                LOG_DEBUG_MSG("Primary at ", targets[i], "went down, set", primary_idx.load(),
+                                LOG_DEBUG_MSG("Primary at ", targets[i], " went down, set ", primary_idx.load(),
                                               "as primary");
                             }
-                            primary_idx.store(-1);
+                            secondary_idx.store(-1);
                         }
                     } else if (secondary_idx.load() == i) {
                         request.set_is_primary(true);
