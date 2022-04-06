@@ -7,8 +7,8 @@
 
 constexpr bool DISABLE_CERR_ERRORS = false;
 constexpr bool ENABLE_LOG_FNAME = true;
-constexpr bool ENABLE_LOG_DEBUG_MSG = true;
-constexpr bool ENABLE_LOG_INFO_MSG = true;
+constexpr bool ENABLE_LOG_DEBUG_MSG = false;
+constexpr bool ENABLE_LOG_INFO_MSG = false;
 constexpr bool ENABLE_LOG_ERR_MSG = true; // always keep true
 
 static inline long double time_monotonic() {

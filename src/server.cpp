@@ -520,7 +520,7 @@ public:
 
         //set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("reintegration complete");
-        LOG_DEBUG_MSG("\n", std::fixed, std::setprecision(2),"records_updated, ", time_monotonic() - reintegration_time_start, ",",
+        LOG_ERR_MSG("\n", std::fixed, std::setprecision(2),"records_updated, ", time_monotonic() - reintegration_time_start, ",",
 
                      disk_records_written + reintegration_response.data_size());
 
