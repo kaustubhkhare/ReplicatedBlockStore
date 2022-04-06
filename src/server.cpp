@@ -101,24 +101,24 @@ using grpc::ClientContext;
 struct MyLock {
     std::mutex m;
     void lock_shared() {
-        std::cerr << " + " << &m << "got shared_lock\n";
+//        std::cerr << " + " << &m << "got shared_lock\n";
         m.lock();
     }
     void unlock_shared() {
-        std::cerr << " - " << &m << "rel shared_lock\n";
+//        std::cerr << " - " << &m << "rel shared_lock\n";
         m.unlock();
     }
     void lock() {
-        std::cerr << " + " << &m << "got lock\n";
+//        std::cerr << " + " << &m << "got lock\n";
         m.lock();
     }
     void unlock() {
-        std::cerr << " - " << &m << "rel lock\n";
+//        std::cerr << " - " << &m << "rel lock\n";
         m.unlock();
     }
     bool try_lock() {
         const auto ret = m.try_lock();
-        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
+//        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
         return ret;
     }
 };
@@ -137,7 +137,9 @@ private:
     enum class ServerState: int32_t { PRIMARY = 0, BACKUP };
     std::atomic<ServerState> current_server_state_;
     std::unique_ptr <gRPCService::Stub> stub_;
-    std::unordered_map<int, std::unique_ptr<Info>> temp_data;
+    std::unordered_map<int, std::shared_ptr<Info>> temp_data;
+    std::unordered_map<int, int> blockMap;
+    std::mutex block_mutex;
     using fut_t = std::future<std::optional<int>>;
     std::deque<fut_t> pending_futures;
     MyLock reintegration_lock;
@@ -145,10 +147,11 @@ private:
     std::fstream file;
     int fd;
     std::mutex dq_lock;
-    MyLock mapLock;
+    std::mutex mapLock;
 public:
     void create_file(const std::string filename) {
         fd = ::open(filename.c_str(), O_RDWR|O_CREAT, S_IRWXU);
+        ::ftruncate(fd, constants::FILE_SIZE);
         if (fd == -1) {
             LOG_ERR_MSG("unable to open fd for: ", filename);
         }
@@ -185,13 +188,14 @@ public:
     }
 
     void transition(ServerState current_state) {
-//	    ASS(get_server_state() == current_state, "server state transition error");
-//	    ASS(current_server_state_.compare_exchange_strong(current_state, ServerState::PRIMARY),
-//			    "concurrent attempt to do state transition?");
+	    ASS(get_server_state() == current_state, "server state transition error");
+	    ASS(current_server_state_.compare_exchange_strong(current_state, ServerState::PRIMARY),
+			    "concurrent attempt to do state transition?");
     }
     void transition_to_primary() {
         set_server_state(ServerState::PRIMARY);
         // set LOCKED state blocks to DISK state
+        std::lock_guard lk(mapLock);
         for (auto& it: temp_data) {
             auto &info = it.second;
             if (info->state == BlockState::LOCKED) {
@@ -205,52 +209,84 @@ public:
         LOG_INFO_MSG(" -> BACKUP");
     }
     void writeToMap(const ds::WriteRequest *writeRequest, BlockState* state) {
-        mapLock.lock();
+//        mapLock.lock();
         LOG_DEBUG_MSG("temp map locked");
-        temp_data[(int)writeRequest->address()] = std::make_unique<Info>(*state, writeRequest->data_length(), writeRequest->data());
-        mapLock.unlock();
+        {
+            LOG_DEBUG_MSG("Writing to ", writeRequest->address());
+            std::lock_guard lk(mapLock);
+            temp_data[(int) writeRequest->address()] = std::make_shared<Info>(*state, writeRequest->data_length(),
+                                                                              writeRequest->data());
+        }
+//        mapLock.unlock();
         LOG_DEBUG_MSG("temp map unlocked");
+    }
+
+    void updateMap(const int address, BlockState& state) {
+//        mapLock.lock();
+        LOG_DEBUG_MSG("temp map locked");
+        {
+            LOG_DEBUG_MSG("Updatinh to ",address);
+//            std::lock_guard lk(mapLock);
+            std::shared_ptr<Info> info = temp_data[address];
+            info->state = state;
+            temp_data[address] = info;
+        }
+//        mapLock.unlock();
+        LOG_DEBUG_MSG("temp map unlocked");
+    }
+
+    void writeToBlockMap(const std::vector<int> &block_num, bool add = 1) {
+        std::lock_guard l(block_mutex);
+        for (auto num : block_num) {
+            const int finalv = (blockMap[num]+= add);
+            if (finalv == 0) blockMap.erase(num);
+        }
+    }
+
+    bool readBlockMap(const std::vector<int> &block_num) {
+        std::lock_guard l(block_mutex);
+        for (auto num : block_num) {
+            if (blockMap[num]) return false;
+        }
+        return true;
     }
 
     explicit gRPCServiceImpl(
             std::shared_ptr<Channel> channel, const std::string filename) :
-            stub_(gRPCService::NewStub(channel)) {
-        std::vector<std::mutex> new_locks(constants::BLOCK_SIZE);
-        per_block_locks.swap(new_locks);
-//        current_server_state_ = (primary)? ServerState::PRIMARY : ServerState::BACKUP;
+            stub_(gRPCService::NewStub(channel)), per_block_locks(constants::BLOCK_SIZE) {
         this->filename = filename;
         create_file(filename);
         LOG_DEBUG_MSG("Filename ", this->filename, " f:", filename);
-//        if (!primary) {
-//            LOG_DEBUG_MSG("reintegration started at backup");
-//            secondary_reintegration();
-//            backup_state.store(BackupState::ALIVE);
-//        }
     }
 
     void wait_before_read(const ds::ReadRequest* readRequest) {
-//        ASS(current_server_state_ == ServerState::PRIMARY,
-//            "waiting for reads in primary shouldn't happen");
         std::vector<int> blocks = get_blocks_involved(
                 readRequest->address(), constants::BLOCK_SIZE);
         // change this to get signaled when the entry is removed
         // from the map (write to that block is complete)
         bool can_read_all = false;
-        if (readRequest->address() == 6) {
-            LOG_DEBUG_MSG("backup request to read a block");
-        }
-        while(!can_read_all) {
-            can_read_all = true;
-            for (const int &b: blocks) {
-                if (temp_data.count(b) && temp_data[b]->state == BlockState::LOCKED) {
-                    can_read_all = false;
-                    break;
-                }
-            }
+//        if (readRequest->address() == 6) {
+//            LOG_DEBUG_MSG("backup request to read a block");
+//        }
+        while(1) {
+            can_read_all = readBlockMap(blocks);
+//            for (const int &b: blocks) {
+//                std::lock_guard lk(mapLock);
+
+//                for (int i = 0; i < 4096; i++) {
+//                    int block_addr = b * 4096 + i;
+//                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
+//                        can_read_all = false;
+//                        break;
+//                    }
+//                }
+//                if (!can_read_all)
+//                    break;
+//            }
             if (!can_read_all) {
                 LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
                 std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
-            }
+            } else break;
         }
     }
 
@@ -258,10 +294,9 @@ public:
         ds::ReadResponse *readResponse) {
         LOG_DEBUG_MSG("c_read function call");
         if (current_server_state_ == ServerState::BACKUP) {
-            if (readRequest->address() == 6) {
-                LOG_DEBUG_MSG("backup request to read a locked block");
-            }
+
             wait_before_read(readRequest);
+            LOG_DEBUG_MSG("retuirned from wait");
         }
         if (get_server_state() == ServerState::BACKUP)
             LOG_DEBUG_MSG("reading from backup");
@@ -303,7 +338,7 @@ public:
             } else {
                 LOG_DEBUG_MSG("setting backup dead");
                 set_backup_state(BackupState::DEAD);
-                reintegration_lock.unlock();
+//                reintegration_lock.unlock();
             }
 //        }
         LOG_DEBUG_MSG("exiting from hb_tell");
@@ -317,6 +352,7 @@ public:
         int first_block = address / constants::BLOCK_SIZE;
         int end_of_first_block = (first_block + 1) * constants::BLOCK_SIZE - 1;
         int first_block_size_left = end_of_first_block - address + 1;
+        LOG_DEBUG_MSG("first block num", first_block);
         std::vector<int> blocks_involved;
         blocks_involved.push_back(first_block);
         if (data_length > first_block_size_left) {
@@ -326,22 +362,27 @@ public:
         return blocks_involved;
     }
 
-    void get_write_locks(const ds::WriteRequest *writeRequest) {
+    template<class T>
+    void get_write_locks(const T *writeRequest) {
         auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
         LOG_DEBUG_MSG("Trying to get re_int lock");
-        reintegration_lock.lock_shared();
+        if (current_server_state_ == ServerState::PRIMARY) {
+            reintegration_lock.lock_shared();
+        }
         LOG_DEBUG_MSG("TOOK SHARED LOCK");
 
         for (const int &block: blocks) {
-            per_block_locks[block].lock();
+            LOG_DEBUG_MSG("trying to get lock on ", block);
+            per_block_locks.at(block).lock();
         }
         for (auto block_num : blocks) {
             LOG_DEBUG_MSG("locks acquired on ", block_num);
         }
     }
 
-    void release_write_locks(const ds::WriteRequest *writeRequest) {
+    template<class T>
+    void release_write_locks(const T *writeRequest) {
         auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
         for (const int &block: blocks) {
@@ -365,6 +406,7 @@ public:
         // opt_todo: stream the entries instead of returning at once
         int c = 0; // debug
         LOG_DEBUG_MSG("temp_data_size:" + std::to_string(temp_data.size()));
+        std::lock_guard lk(mapLock);
         for (auto& it: temp_data) {
             auto& info = it.second;
             LOG_DEBUG_MSG("info ->", "(state) ", (info->state == BlockState::DISK ? "disk" : "not disk"));
@@ -397,6 +439,7 @@ public:
 
         // return the entries in temp_data that are in MEMORY state.
         // opt_todo: stream the entries instead of returning at once
+        std::lock_guard lk(mapLock);
         for (auto& it: temp_data) {
             auto& info = it.second;
             if (info->state == BlockState::MEMORY) {
@@ -416,7 +459,10 @@ public:
         LOG_DEBUG_MSG("reintegraton complete lock unlocked");
         set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("RELEASING LOCK");
-        temp_data.clear();
+        {
+            std::lock_guard lk(mapLock);
+            temp_data.clear();
+        }
         LOG_DEBUG_MSG("Size of temp_data", temp_data.size());
         reintegration_lock.unlock();
         LOG_DEBUG_MSG("RE-int lock released");
@@ -502,26 +548,37 @@ public:
         if (current_server_state_ != ServerState::PRIMARY) {
             return Status::CANCELLED;
         }
-        BackupState current_backup_state = backup_state;
+        const BackupState current_backup_state = backup_state;
         LOG_DEBUG_MSG("Starting primary server write");
-        {
-            std::lock_guard l(dq_lock); // TODO: make unique_lock
-            while (pending_futures.size()) {
-                LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
-                auto pf = std::move(pending_futures.front());
-                pending_futures.pop_front();
-//                l.unlock();
-                if (pf.valid()) {
-                    LOG_DEBUG_MSG("future ready, decreasing size of map");
-                    const auto addr = pf.get();
-                    if (addr) {
-                        LOG_DEBUG_MSG("address found in optional int", *addr);
-                        temp_data.erase(addr.value());
-                    }
-                    LOG_DEBUG_MSG("temp_data size:", temp_data.size());
-                }
-            }
-        }
+//        {
+//            decltype(pending_futures) tdq;
+//            {
+//                if (pending_futures.size()) {
+//                    std::lock_guard l(dq_lock); // TODO: make unique_lock
+//                    if (pending_futures.size() > 0)
+//                        tdq.swap(pending_futures);
+//                }
+//            }
+//            while (tdq.size()) {
+//                LOG_DEBUG_MSG(tdq.size(), " pending futures found");
+//                auto pf = std::move(tdq.front());
+//                tdq.pop_front();
+////                l.unlock();
+//                if (pf.valid()) {
+//                    LOG_DEBUG_MSG("future ready, decreasing size of map");
+//                    const auto addr = pf.get();
+//                    if (addr) {
+//                        LOG_DEBUG_MSG("address found in optional int", *addr);
+////                        std::lock_guard lk(mapLock);
+////                        temp_data.erase(addr.value());
+//                    }
+//                    LOG_DEBUG_MSG("temp_data size:", temp_data.size());
+//                } else {
+//                    std::lock_guard l(dq_lock);
+//                    pending_futures.push_back(std::move(pf));
+//                }
+//            }
+//        }
         get_write_locks(writeRequest);
         BlockState state = (current_backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
         LOG_DEBUG_MSG("Backup state:", current_backup_state == BackupState::REINTEGRATION ? "r" : "not r");
@@ -564,14 +621,14 @@ public:
             ClientContext context;
             ds::CommitRequest commitRequest;
             const int waddr = writeRequest->address();
+            const int len = writeRequest->data_length();
             LOG_DEBUG_MSG("waddr to ret = ", waddr);
-            commitRequest.set_address(waddr);
-
             fut_t f = std::async(std::launch::async,
                 [&, waddr]() -> std::optional<int> {
                     ClientContext context;
                     ds::CommitRequest commitRequest;
                     commitRequest.set_address(waddr);
+                    commitRequest.set_data_length(len);
                     ds::AckResponse ackResponse;
                     if ((stub_->s_commit(&context, commitRequest, &ackResponse)).ok()) {
                         LOG_DEBUG_MSG("waddr to ret = ", waddr);
@@ -597,17 +654,17 @@ public:
         ds::AckResponse *ackResponse) {
 //        assert_msg(current_server_state_ != ServerState::BACKUP,
 //                   "Reintegration called on backup");
-        if (current_server_state_ == ServerState::BACKUP) {
-            LOG_DEBUG_MSG("Starting backup server write");
-            BlockState state = BlockState::LOCKED;
-            writeToMap(writeRequest, &state);
-            LOG_DEBUG_MSG("Pausing write in backup server");
-            int debug_integer;
-//            sleep(10);
-            LOG_DEBUG_MSG("waking from sloeep");
-        } else {
-            LOG_DEBUG_MSG("calling s_write at primary whyyy?");
+        if (current_server_state_ != ServerState::BACKUP) {
+            LOG_ERR_MSG("calling s_write at primary whyyy?");
+            return Status::CANCELLED;
         }
+        LOG_DEBUG_MSG("Starting backup server write");
+        BlockState state = BlockState::LOCKED;
+        writeToMap(writeRequest, &state);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
+        writeToBlockMap(blocks, 1);
+        LOG_DEBUG_MSG("Pausing write in backup server");
+        LOG_DEBUG_MSG("waking from sloeep");
         return Status::OK;
     }
 
@@ -616,9 +673,28 @@ public:
 //        assert_msg(current_server_state_ != ServerState::BACKUP,
 //                   "Reintegration called on backup");
         LOG_DEBUG_MSG("calling commit on backup");
-        auto& info = temp_data[(int)commitRequest->address()];
+        std::lock_guard lk(mapLock);
+
+        LOG_DEBUG_MSG("Committing to ", commitRequest->address());
+        const auto it = temp_data.find(commitRequest->address());
+        if (it == temp_data.end()) {
+            LOG_ERR_MSG("it==tmp_data.end()");
+        }
+        LOG_ERR_MSG("it==tmp_data.end() 1");
+        auto& info = it->second;
+        LOG_ERR_MSG("it==tmp_data.end() 2");
+        get_write_locks(commitRequest);
         write(info->data.c_str(), commitRequest->address(), info->length);
-        temp_data.erase((int)commitRequest->address());
+        release_write_locks(commitRequest);
+        BlockState state = BlockState::DISK;
+//        writeToMap(commitRequest, &state);
+        std::shared_ptr<Info> info1 = temp_data[commitRequest->address()];
+        info1->state = state;
+        temp_data[commitRequest->address()] = info1;
+        std::vector<int> blocks = get_blocks_involved(commitRequest->address(), commitRequest->data_length());
+        writeToBlockMap(blocks, -1);
+//        updateMap(commitRequest->address(), state);
+//        temp_data.erase(it);
         return Status::OK;
     }
 
