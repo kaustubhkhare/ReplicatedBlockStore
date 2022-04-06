@@ -87,7 +87,7 @@ public:
    inline std::string read(int address, int length) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
-        LOG_DEBUG_MSG("Starting read");
+//        LOG_DEBUG_MSG("Starting read");
         ds::ReadResponse readResponse_p;
         ds::ReadResponse readResponse_b;
         ClientContext context;
@@ -100,38 +100,38 @@ public:
         if (secondary_idx != -1) {
             if (compare == "1") {
                 ClientContext context;
-                LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
+//                LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
                 status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
-                LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
+//                LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
 
                 ClientContext context2;
-                LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+//                LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
                 status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
-                LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+//                LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
 
                 if (hash_str(readResponse_p.data().c_str()) != hash_str(readResponse_b.data().c_str())) {
                     LOG_DEBUG_MSG("primary backup data not matching");
                 } else {
-                    LOG_DEBUG_MSG("data committed to backup");
+//                    LOG_DEBUG_MSG("data committed to backup");
                 }
             } else {
                 if (server == 1) {
                     ClientContext context;
-                    LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
+//                    LOG_DEBUG_MSG("Sending read to secondary ", servers[secondary_idx]);
                     status = server_stubs_[secondary_idx]->c_read(&context, readRequest, &readResponse_b);
-                    LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
+//                    LOG_DEBUG_MSG("Read from server" + readResponse_b.data());
                 } else {
                     ClientContext context2;
 
-                    LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+//                    LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
                     status = server_stubs_[primary_idx]->c_read(&context2, readRequest, &readResponse_p);
-                    LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+//                    LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
                 }
             }
         } else {
-            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+//            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
             status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
-            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
+//            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
         }
 
         if (!status.ok()) {
@@ -146,7 +146,7 @@ public:
    inline int write(int address, int length, const char* wr_buffer) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
-        LOG_DEBUG_MSG("Starting client write");
+//        LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
         ds::WriteRequest writeRequest;
@@ -154,11 +154,11 @@ public:
         writeRequest.set_data_length(length);
         writeRequest.set_data(wr_buffer);
 
-        LOG_DEBUG_MSG("Sending write to server");
-        LOG_DEBUG_MSG("primary is ", servers.at(primary_idx));
+//        LOG_DEBUG_MSG("Sending write to server");
+//        LOG_DEBUG_MSG("primary is ", servers.at(primary_idx));
         Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
 
-        LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
+//        LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
 
         if (!status.ok()){
             LOG_ERR_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());

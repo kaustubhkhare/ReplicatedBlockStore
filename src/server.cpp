@@ -109,6 +109,7 @@ private:
     std::vector<std::mutex> per_block_locks;
     std::fstream file;
     int fd;
+    std::mutex dq_lock;
     MyLock mapLock;
 public:
     void create_file(const std::string filename) {
@@ -119,7 +120,7 @@ public:
     }
 
     int write(const char* buf, int address, int size) {
-        LOG_DEBUG_MSG("writing @", address, ": ", std::string(buf, size));
+//        LOG_DEBUG_MSG("writing @", address, ": ", std::string(buf, size));
         const int written_b = ::pwrite(fd, buf, size, address);
         if (written_b == -1) {
             LOG_ERR_MSG("write failed @ ", address, " ", errno);
@@ -132,7 +133,7 @@ public:
         if (read_b == -1) {
             LOG_ERR_MSG("read failed @ ", address, " ", errno);
         }
-        LOG_DEBUG_MSG("reading @", address, ":", size, " -> ", std::string(buf, read_b));
+//        LOG_DEBUG_MSG("reading @", address, ":", size, " -> ", std::string(buf, read_b));
         return read_b;
     }
 
@@ -149,9 +150,9 @@ public:
     }
 
     void transition(ServerState current_state) {
-	    ASS(get_server_state() == current_state, "server state transition error");
-	    ASS(current_server_state_.compare_exchange_strong(current_state, ServerState::PRIMARY),
-			    "concurrent attempt to do state transition?");
+//	    ASS(get_server_state() == current_state, "server state transition error");
+//	    ASS(current_server_state_.compare_exchange_strong(current_state, ServerState::PRIMARY),
+//			    "concurrent attempt to do state transition?");
     }
     void transition_to_primary() {
         set_server_state(ServerState::PRIMARY);
@@ -233,7 +234,7 @@ public:
         auto buf = std::make_unique<char[]>(buf_size);
         ::bzero(buf.get(), buf_size);
         int bytes_read = read(buf.get(), readRequest->address(), buf_size);
-        LOG_DEBUG_MSG(std::string(buf.get(), bytes_read), " bytes read");
+//        LOG_DEBUG_MSG(std::string(buf.get(), bytes_read), " bytes read");
         readResponse->set_data(buf.get(), bytes_read);
         return Status::OK;
     }
@@ -471,18 +472,22 @@ public:
             return Status::CANCELLED;
         }
         LOG_DEBUG_MSG("Starting primary server write");
-        while (pending_futures.size()) {
-            LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
-            auto& pf = pending_futures.front();
-            if (pf.valid()) {
-                LOG_DEBUG_MSG("future ready, decreasing size of map");
-                const auto addr = pf.get();
-                if (addr) {
-                    LOG_DEBUG_MSG("address found in optional int", *addr);
-                    temp_data.erase(addr.value());
-                }
+        {
+            std::lock_guard l(dq_lock); // TODO: make unique_lock
+            while (pending_futures.size()) {
+                LOG_DEBUG_MSG(pending_futures.size(), " pending futures found");
+                auto pf = std::move(pending_futures.front());
                 pending_futures.pop_front();
-                LOG_DEBUG_MSG("temp_data size:", temp_data.size());
+//                l.unlock();
+                if (pf.valid()) {
+                    LOG_DEBUG_MSG("future ready, decreasing size of map");
+                    const auto addr = pf.get();
+                    if (addr) {
+                        LOG_DEBUG_MSG("address found in optional int", *addr);
+                        temp_data.erase(addr.value());
+                    }
+                    LOG_DEBUG_MSG("temp_data size:", temp_data.size());
+                }
             }
         }
         get_write_locks(writeRequest);
@@ -539,8 +544,10 @@ public:
                     }
                     return std::nullopt;
             });
-
-            pending_futures.push_back(std::move(f));
+            {
+                std::lock_guard l(dq_lock);
+                pending_futures.push_back(std::move(f));
+            }
             const static bool SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT = std::getenv("SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT");
             if (SERVER_CRASH_AFTER_SENDING_BACKUP_COMMIT) {
                 LOG_ERR_MSG("Exiting after sending commit to backup\n");

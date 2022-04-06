@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 #include <thread>
 #include <iostream>
 #include <vector>
@@ -8,7 +9,7 @@ class Stats {
     std::string name;
 public:
     Stats(): name("unnnamed"){}
-    Stats(const std::string name_): name("thrift_" + std::move(name_)) {}
+    Stats(const std::string name_): name("repl_" + std::move(name_)) {}
     inline void add(uint64_t ns) {
         stats.push_back(ns);
     }
@@ -23,6 +24,7 @@ public:
             const auto sum = std::accumulate(stats.begin(), stats.end(), 0ULL);
             std::cout <<(int) ( ((double) sum) / stats.size() ) << "\n";
         }
+        std::cout << std::flush;
     }
 };
 
@@ -44,6 +46,12 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
               const std::vector<int>& write_addr, int rthread = 1,
               int wthread = 1, bool rw_seq = true)
 {
+    static std::string FONS = []() {
+        char buf[4096];
+        memset(buf, 'X', 4095);
+        buf[sizeof(buf) - 1] = '\0';
+        return std::string(buf, sizeof(buf));
+    }();
     Stats st(name + ",total");
     Clocker _(st);
     auto read_fn = [&] (const int n_threads) {
@@ -56,7 +64,7 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-                    client.read(read_addr[st], 4);
+                    client.read(read_addr[st], FONS.length());
                     st++;
                 }
             });
@@ -74,7 +82,9 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-                    client.write(write_addr[st], 4, "AAA");
+                    std::cerr << "write @ " << write_addr[st] << "\n";
+                    client.write(write_addr[st], FONS.length(), FONS.c_str());
+                    std::cerr << "\tdone @ " << write_addr[st] << "\n";
                     st++;
                 }
             });
@@ -86,7 +96,7 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
     if (rw_seq) {
         write_fn(wthread);
     } else {
-        f = std::async(std::launch::async, [&]() { write_fn(rthread); });
+        f = std::async(std::launch::async, [&]() { write_fn(wthread); });
     }
     read_fn(rthread);
 }

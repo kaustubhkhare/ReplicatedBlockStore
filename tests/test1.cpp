@@ -3,6 +3,7 @@
 #include <type_traits>
 #include <iostream>
 #include <cassert>
+#include "client.h"
 
 enum class Distribution { ZIPF, UNIF };
 
@@ -18,12 +19,13 @@ struct TestTemplate {
 };
 
 struct ClientInterface {
-    std::string read(int addr, int) {
-        std::cout << "[R] " << addr << '\n';
-        return "AAAA";
+    GRPCClient *client;
+
+    std::string read(int addr, int length) {
+        return client->read(addr, length);
     }
     void write(int addr, int sz, const char* buf) {
-        std::cout << "[W] " << addr << "-> " << std::string(buf, sz) << '\n';
+        client->write(addr, sz, buf);
     }
 
     void reset() {}
@@ -35,7 +37,7 @@ const std::vector<std::pair<int, int> > RW_THREADS
                {0, 1}, {0, 2}, {0, 4}, {0, 8}, // all writes
                {1, 1}, {4, 1}, {1, 4}          // mix
             };
-const std::vector<int> NUM_OPS = {(int)5e3, (int)1e4, (int)3e4};
+const std::vector<int> NUM_OPS = {(int)5e2, (int)1e2, (int)3e2};
 const std::vector<double> ALIGNED_OPS_RATIO = {1, 0.5};
 
 
@@ -58,6 +60,7 @@ std::string make_comma_sep(T&& t, Ts&&... ts) {
 
 int test1(int argc, char** argv) {
     ClientInterface client;
+    client.client = GRPCClient::get_client(argc, argv);
     for (auto aligned_ratio: ALIGNED_OPS_RATIO) {
         for (auto ops: NUM_OPS) {
             const int ADDR_LIMIT = 2 * ops;
@@ -72,6 +75,7 @@ int test1(int argc, char** argv) {
                 const auto write_v = get(zipf, n_read, aligned_ratio);
                 for (auto [rthread, wthread]: RW_THREADS) {
                     const auto test_name = make_comma_sep("test", aligned_ratio, ops, rw_ratio, rthread, wthread);
+                    std::cerr << "running: " << test_name << "\n";
                     run_test(test_name, client, read_v, write_v, rthread, wthread, false);
                     client.reset();
                 }
