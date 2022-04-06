@@ -121,7 +121,7 @@ public:
                     }
                     LOG_DEBUG_MSG("Server ", targets[i], " did not respond.");
                 } else if (status.ok()) {
-                    LOG_DEBUG_MSG("status okay");
+//                    LOG_DEBUG_MSG("status okay");
                     ClientContext context2;
 //                    LOG_DEBUG_MSG("Server ", targets[i], " did respond.");
                     available_hosts.insert(i);
