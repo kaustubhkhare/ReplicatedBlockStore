@@ -47,7 +47,7 @@ public:
         if (writer != 0) {
             assert(writer-- == 1);
         }
-        LOG_DEBUG_MSG("unlocked EXCL lock")
+        LOG_DEBUG_MSG("unlocked EXCL lock");
     }
 
     void lock_shared() {
