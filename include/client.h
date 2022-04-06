@@ -154,7 +154,7 @@ public:
    inline int write(int address, int length, const char* wr_buffer, int retry = 10) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
-//        LOG_DEBUG_MSG("Starting client write");
+        LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
         ds::WriteRequest writeRequest;
