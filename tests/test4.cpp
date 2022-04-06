@@ -31,10 +31,6 @@ int test4(int argc, char *argv[]) {
         client->write(offset, v.size(), v.c_str());
         std::cout << "Read @ " << offset << '\n';
         std::string read_str = client->read(offset, length);
-        ASS(!v.compare(read_str), std::string("WRITE AND READ NOT SAME:") +
-                                 v +
-                                 std::string(",") +
-                                 read_str);
     }
     return 0;
 }
