@@ -40,6 +40,7 @@ int test3(int argc, char *argv[]) {
     int iteration = 0;
     int length = 4096, address_size = 2112357;
     std::vector<int> addresses;
+    std::cout << "about to fill vectors\n";
 
     for (int i = 0; i < address_size; i++) {
         if (i*constants::BLOCK_SIZE < constants::FILE_SIZE - constants::BLOCK_SIZE)
