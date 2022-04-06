@@ -132,7 +132,7 @@ public:
 //            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
             if (primary_idx == -1) {
                 LOG_ERR_MSG("No server found for write. Retrying ", (10 - retry + 1));
-                return write(address, length, wr_buffer, retry - 1);
+                return return read(address, length, retry - 1);
             }
             status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
 //            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
