@@ -48,6 +48,7 @@ int test3(int argc, char *argv[]) {
             addresses.push_back(rand() % (constants::FILE_SIZE- constants::BLOCK_SIZE - 1));
     }
     int i = 0;
+    std::cout << "about to run tests\n";
     while (no_of_iterations--) {
 //        sleep(2);
         std::cout << "Iteration #" << i++ << '\n';
