@@ -617,7 +617,7 @@ public:
         ::close(fd);
     }
 };
-std::mutex MyLock::m;
+
 int main(int argc, char *argv[]) {
     if(argc < 7) {
         printf("Usage : ./server -self <myIP:port> -other <otherIP:port> -datafile <datafile>\n");
