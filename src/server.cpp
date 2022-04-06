@@ -291,8 +291,8 @@ public:
         auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
         LOG_DEBUG_MSG("Trying to get re_int lock");
-        LOG_DEBUG_MSG("TAKING SHARED LOCK");
         reintegration_lock.lock_shared();
+        LOG_DEBUG_MSG("TOOK SHARED LOCK");
 
         for (const int &block: blocks) {
             per_block_locks[block].lock();
