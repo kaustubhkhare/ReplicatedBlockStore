@@ -174,7 +174,7 @@ public:
 //        assign_new_secondary();
         {
             std::lock_guard l(m);
-            LOG_DEBUG_MSG("p: ", primary_idx.load(), " s: ", secondary_idx.load());
+//            LOG_DEBUG_MSG("p: ", primary_idx.load(), " s: ", secondary_idx.load());
             response->set_primary(primary_idx.load());
             response->set_secondary(secondary_idx.load());
         }

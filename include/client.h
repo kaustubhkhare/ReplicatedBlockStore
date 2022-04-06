@@ -84,7 +84,7 @@ public:
         compare = cmp;
     }
 
-   inline std::string read(int address, int length) {
+   inline std::string read(int address, int length, int retry = 10) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
 //        LOG_DEBUG_MSG("Starting read");
@@ -138,12 +138,16 @@ public:
             LOG_ERR_MSG("Error in reading ErrorCode: ", status.error_code(),
                           " Error: ", status.error_message());
             discover_servers(false);
+            if (retry > 0) {
+                LOG_DEBUG_MSG("Retrying read", (10 - retry + 1));
+                return read(address, length, retry - 1);
+            }
             return "ERROR";
         }
         return readResponse_p.data();
     }
 
-   inline int write(int address, int length, const char* wr_buffer) {
+   inline int write(int address, int length, const char* wr_buffer, int retry = 10) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
 //        LOG_DEBUG_MSG("Starting client write");
@@ -163,6 +167,10 @@ public:
         if (!status.ok()){
             LOG_ERR_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
             discover_servers(false);
+            if (retry > 0) {
+                LOG_DEBUG_MSG("Retrying write", (10 - retry + 1));
+                return write(address, length, wr_buffer, retry - 1);
+            }
             return ENONET;
         }
         return writeResponse.bytes_written();
