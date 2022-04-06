@@ -221,6 +221,7 @@ public:
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
+        LOG_DEBUG_MSG("c_read function call")
         if (current_server_state_ == ServerState::BACKUP) {
             if (readRequest->address() == 6) {
                 LOG_DEBUG_MSG("backup request to read a locked block");
@@ -269,6 +270,7 @@ public:
                 set_backup_state(BackupState::DEAD);
             }
 //        }
+        LOG_DEBUG_MSG("exiting from hb_tell");
         return Status::OK;
     }
 
@@ -458,7 +460,7 @@ public:
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
                    ds::WriteResponse *writeResponse) {
-        LOG_DEBUG_MSG("here");
+        LOG_DEBUG_MSG("WRITE request");
 //        assert_msg(current_server_state_ != ServerState::PRIMARY,
 //                   "Reintegration called on backup");
         if (current_server_state_ != ServerState::PRIMARY) {
