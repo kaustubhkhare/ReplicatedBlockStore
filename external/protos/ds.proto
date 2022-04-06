@@ -23,6 +23,7 @@ message WriteResponse {
 
 message CommitRequest {
     int32 address = 1;
+    int32 data_length = 2;
 }
 
 message AckResponse {

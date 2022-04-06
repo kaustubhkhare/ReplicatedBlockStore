@@ -33,11 +33,13 @@ struct ClientInterface {
 
 const std::vector<double> RW_RATIOS = {4, 2, 1, 0.5, 0.25};
 const std::vector<std::pair<int, int> > RW_THREADS
-            = {{1, 0}, {2, 0}, {4, 0}, {8, 0}, // all reads
+            = {
+//               {1, 0}, {2, 0}, {4, 0}, {8, 0}, // all reads
                {0, 1}, {0, 2}, {0, 4}, {0, 8}, // all writes
-               {1, 1}, {4, 1}, {1, 4}          // mix
+//               {1, 1}, {4, 1}, {1, 4}          // mix
             };
-const std::vector<int> NUM_OPS = {(int)5e2, (int)1e2, (int)3e2};
+
+const std::vector<int> NUM_OPS = {(int)5e1, (int)1e1, (int)3e1};
 const std::vector<double> ALIGNED_OPS_RATIO = {1, 0.5};
 
 
@@ -63,7 +65,7 @@ int test1(int argc, char** argv) {
     client.client = GRPCClient::get_client(argc, argv);
     for (auto aligned_ratio: ALIGNED_OPS_RATIO) {
         for (auto ops: NUM_OPS) {
-            const int ADDR_LIMIT = 2 * ops;
+            const int ADDR_LIMIT = 2e3;
             const auto distr = Distribution::ZIPF;
             zipf_distribution<int> zipf(ADDR_LIMIT);
 //            uniform_distribution<int> unif(0, ADDR_LIMIT);
