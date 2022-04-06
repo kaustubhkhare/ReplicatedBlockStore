@@ -55,6 +55,7 @@ public:
     }
     void unlock_shared() {
         std::lock_guard l(m);
+        assert(writer == 0);
         assert(readers-- > 0);
     }
     void lock() {
@@ -380,14 +381,7 @@ public:
         temp_data.clear();
         LOG_DEBUG_MSG("Size of temp_data", temp_data.size());
         reintegration_lock.unlock();
-        if (reintegration_lock.try_lock()) {
-            LOG_DEBUG_MSG("lock status:", "lock aquired");
-            reintegration_lock.unlock();
-            LOG_DEBUG_MSG("lock status:", "lock released");
-        } else {
-            LOG_DEBUG_MSG("lock status:", "lock not released??");
-        }
-
+        LOG_DEBUG_MSG("RE-int lock released");
         return Status::OK;
     }
 
