@@ -55,6 +55,7 @@ public:
     }
     void unlock_shared() {
         std::lock_guard l(m);
+        assert(writer == 0);
         assert(readers-- > 0);
     }
     void lock() {
@@ -292,8 +293,8 @@ public:
         auto blocks = get_blocks_involved(
                 writeRequest->address(), writeRequest->data_length());
         LOG_DEBUG_MSG("Trying to get re_int lock");
-        LOG_DEBUG_MSG("TAKING SHARED LOCK");
         reintegration_lock.lock_shared();
+        LOG_DEBUG_MSG("TOOK SHARED LOCK");
 
         for (const int &block: blocks) {
             per_block_locks[block].lock();
@@ -381,14 +382,7 @@ public:
         temp_data.clear();
         LOG_DEBUG_MSG("Size of temp_data", temp_data.size());
         reintegration_lock.unlock();
-        if (reintegration_lock.try_lock()) {
-            LOG_DEBUG_MSG("lock status:", "lock aquired");
-            reintegration_lock.unlock();
-            LOG_DEBUG_MSG("lock status:", "lock released");
-        } else {
-            LOG_DEBUG_MSG("lock status:", "lock not released??");
-        }
-
+        LOG_DEBUG_MSG("RE-int lock released");
         return Status::OK;
     }
 
@@ -471,6 +465,7 @@ public:
         if (current_server_state_ != ServerState::PRIMARY) {
             return Status::CANCELLED;
         }
+        BackupState current_backup_state = backup_state;
         LOG_DEBUG_MSG("Starting primary server write");
         {
             std::lock_guard l(dq_lock); // TODO: make unique_lock
@@ -491,13 +486,13 @@ public:
             }
         }
         get_write_locks(writeRequest);
-        BlockState state = (backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
-        LOG_DEBUG_MSG("Backup state:", backup_state == BackupState::REINTEGRATION ? "r" : "not r");
+        BlockState state = (current_backup_state == BackupState::REINTEGRATION) ? BlockState::MEMORY : BlockState::DISK;
+        LOG_DEBUG_MSG("Backup state:", current_backup_state == BackupState::REINTEGRATION ? "r" : "not r");
         LOG_DEBUG_MSG("wrtiing in primary with state ", ((state == BlockState::DISK) ? "DISK" : "MEM"));
         writeToMap(writeRequest, &state);
 
         LOG_DEBUG_MSG("temp_data size:" + std::to_string(temp_data.size()));
-        if (backup_state == BackupState::ALIVE) {
+        if (current_backup_state == BackupState::ALIVE) {
             ClientContext context;
             ds::AckResponse ackResponse;
             LOG_DEBUG_MSG("sending write to backup");
@@ -524,7 +519,7 @@ public:
         }
         writeResponse->set_bytes_written(writeRequest->data_length());
 
-        if (backup_state == BackupState::ALIVE) {
+        if (current_backup_state == BackupState::ALIVE) {
             LOG_DEBUG_MSG("commit to backup");
             ClientContext context;
             ds::CommitRequest commitRequest;
