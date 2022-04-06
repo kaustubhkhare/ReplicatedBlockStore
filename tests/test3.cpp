@@ -48,7 +48,7 @@ int test3(int argc, char *argv[]) {
         std::cout << "Iteration #" << i++ << '\n';
         int offset = addresses[iteration % address_size];
         std::string v = get_string_with_length_3(length, iteration++);
-        std::cout << "Write @ " << offset << "value:" << v << '\n';
+        std::cout << "Write @ " << offset << '\n';
         int status = client->write(offset, v.size(), v.c_str());
         if (status != ENONET) {
             std::cout << "Status not ENONET\n";
