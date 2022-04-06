@@ -5,9 +5,9 @@
 #include <time.h>
 #include <thread>
 
-constexpr bool DISABLE_CERR_ERRORS = false;
+constexpr bool DISABLE_CERR_ERRORS = true;
 constexpr bool ENABLE_LOG_FNAME = true;
-constexpr bool ENABLE_LOG_DEBUG_MSG = true;
+constexpr bool ENABLE_LOG_DEBUG_MSG = false;
 constexpr bool ENABLE_LOG_INFO_MSG = true;
 constexpr bool ENABLE_LOG_ERR_MSG = true; // always keep true
 

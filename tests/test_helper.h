@@ -64,6 +64,9 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
+//                    std::cerr << "read @ " << read_addr[st] << "\n";
+                    if (read_addr[st] < 0)
+                        continue;
                     client.read(read_addr[st], FONS.length());
                     st++;
                 }
@@ -82,9 +85,11 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-                    std::cerr << "write @ " << write_addr[st] << "\n";
+//                    std::cerr << "write @ " << write_addr[st] << "\n";
+                    if (write_addr[st] < 0)
+                        continue;
                     client.write(write_addr[st], FONS.length(), FONS.c_str());
-                    std::cerr << "\tdone @ " << write_addr[st] << "\n";
+//                    std::cerr << "\tdone @ " << write_addr[st] << "\n";
                     st++;
                 }
             });
