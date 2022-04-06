@@ -45,7 +45,7 @@ int test3(int argc, char *argv[]) {
         if (i*constants::BLOCK_SIZE < constants::FILE_SIZE - constants::BLOCK_SIZE)
             addresses.push_back(i*constants::BLOCK_SIZE);
         else
-            addresses.push_back(rand() % (constants::FILE_SIZE-1));
+            addresses.push_back(rand() % (constants::FILE_SIZE- constants::BLOCK_SIZE - 1));
     }
     int i = 0;
     while (no_of_iterations--) {
