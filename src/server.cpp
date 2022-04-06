@@ -229,7 +229,7 @@ public:
 //            std::lock_guard lk(mapLock);
             std::shared_ptr<Info> info = temp_data[address];
             info->state = state;
-            temp_data[address] = info;
+//            temp_data[address] = info;
         }
 //        mapLock.unlock();
         LOG_DEBUG_MSG("temp map unlocked");
@@ -648,7 +648,7 @@ public:
             LOG_DEBUG_MSG("committed to backup");
         }
         return Status::OK;
-    }
+   }
 
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::AckResponse *ackResponse) {
@@ -688,12 +688,12 @@ public:
         release_write_locks(commitRequest);
         BlockState state = BlockState::DISK;
 //        writeToMap(commitRequest, &state);
-        std::shared_ptr<Info> info1 = temp_data[commitRequest->address()];
-        info1->state = state;
-        temp_data[commitRequest->address()] = info1;
-        std::vector<int> blocks = get_blocks_involved(commitRequest->address(), commitRequest->data_length());
-        writeToBlockMap(blocks, -1);
-//        updateMap(commitRequest->address(), state);
+//        std::shared_ptr<Info> info1 = temp_data[commitRequest->address()];
+//        info1->state = state;
+//        temp_data[commitRequest->address()] = info1;
+//        std::vector<int> blocks = get_blocks_involved(commitRequest->address(), commitRequest->data_length());
+//        writeToBlockMap(blocks, -1);
+        updateMap(commitRequest->address(), state);
 //        temp_data.erase(it);
         return Status::OK;
     }

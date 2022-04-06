@@ -41,7 +41,7 @@ const std::vector<std::pair<int, int> > RW_THREADS
                {1, 1}, {4, 1}, {1, 4}          // mix
             };
 
-const std::vector<int> NUM_OPS = {5000};
+const std::vector<int> NUM_OPS = {500};
 const std::vector<double> ALIGNED_OPS_RATIO = {1, .5};
 
 
@@ -70,14 +70,14 @@ int test1(int argc, char** argv) {
             if (aligned_ratio != 1) ops /= 2;
             const int ADDR_LIMIT = 2e3;
             const auto distr = Distribution::ZIPF;
-            zipf_distribution<int> zipf(ADDR_LIMIT);
-//            uniform_distribution<int> unif(0, ADDR_LIMIT);
+//            zipf_distribution<int> zipf(ADDR_LIMIT);
+            uniform_distribution<int> unif(0, ADDR_LIMIT);
             for (auto rw_ratio: RW_RATIOS) {
                 const double rw_sum = (rw_ratio + 1);
                 const auto n_read = ops * (rw_ratio / rw_sum);
                 const auto n_write = ops - n_read;
-                const auto read_v = get(zipf, n_read, aligned_ratio);
-                const auto write_v = get(zipf, n_write, aligned_ratio);
+                const auto read_v = get(unif, n_read, aligned_ratio);
+                const auto write_v = get(unif, n_write, aligned_ratio);
                 for (auto [rthread, wthread]: RW_THREADS) {
                     const auto test_name = make_comma_sep("test", aligned_ratio, ops, rw_ratio, rthread, wthread);
                     std::cerr << "running: " << test_name << " [" << read_v.size() << ", " << write_v.size() << "]\n";
