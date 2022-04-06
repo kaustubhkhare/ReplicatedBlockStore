@@ -302,7 +302,7 @@ public:
             } else {
                 LOG_DEBUG_MSG("setting backup dead");
                 set_backup_state(BackupState::DEAD);
-                reintegration_lock.unlocked_if_write_locked();
+                reintegration_lock.unlock();
             }
 //        }
         LOG_DEBUG_MSG("exiting from hb_tell");
