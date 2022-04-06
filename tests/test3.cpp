@@ -38,11 +38,11 @@ int test3(int argc, char *argv[]) {
     auto client = GRPCClient::get_client(argc, argv);
     //read/write aligned reads/writes
     int iteration = 0;
-    int length = 4096, address_size = 2000000;
+    int length = 4096, address_size = 2112357;
     std::vector<int> addresses;
 
     for (int i = 0; i < address_size; i++) {
-        addresses.push_back(i + rand() % constants::BLOCK_SIZE);
+        addresses.push_back(i*constants::BLOCK_SIZE);
     }
     int i = 0;
     while (no_of_iterations--) {
