@@ -48,6 +48,7 @@ private:
     std::vector<std::string> targets;
     std::atomic<int> primary_idx;
     std::atomic<int> secondary_idx;
+    std::mutex m;
 
 public:
     LBServiceImpl(std::vector<std::shared_ptr<Channel>> channels, std::vector<std::string> t) {
@@ -58,11 +59,11 @@ public:
             server_stubs_.emplace_back(gRPCService::NewStub(channel));
     }
 
-//    void assign_new_primary() {
-//        if (available_hosts.size() == 0)
-//            primary_idx.store(-1);
-//        primary_idx.store(*available_hosts.begin());
-//    }
+    void assign_new_primary() {
+        if (available_hosts.size() == 0)
+            primary_idx.store(-1);
+        primary_idx.store(*available_hosts.begin());
+    }
 
     void assign_new_primary(int i) {
         primary_idx.store(i);
@@ -94,28 +95,38 @@ public:
                         available_hosts.erase(i);
                     dead_hosts.insert(i);
                     if (primary_idx.load() == i) {
-                        assign_new_primary(i);
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
-                        status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
-                        secondary_idx.store(-1);
-                        if (!status.ok()) {
-                            LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1");
+                        status = server_stubs_[secondary_idx.load()]->hb_tell(&context1, request, &response);
+                        {
+                            std::lock_guard l(m);
+                            if (!status.ok()) {
+                                LOG_ERR_MSG("Secondary ", secondary_idx.load(),
+                                            " also not available. Setting primary -1 and secondary -1");
+                                secondary_idx.store(-1);
+                            } else {
+                                assign_new_primary();
+                                secondary_idx.store(-1);
+                                LOG_DEBUG_MSG("Primary at ", targets[i], "went down, set", primary_idx.load(),
+                                              "as primary");
+                            }
                             primary_idx.store(-1);
-                        } else {
-                            LOG_DEBUG_MSG("Primary at", targets[i], "went down, set", targets[(i + 1) % 2],
-                                          "as primary");
                         }
-                    } else if (secondary_idx.load() == i){
+                    } else if (secondary_idx.load() == i) {
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
                         status = server_stubs_[primary_idx.load()]->hb_tell(&context1, request, &response);
-                        secondary_idx.store(-1);
-                        if (!status.ok()) {
-                            LOG_ERR_MSG("Set primary ", primary_idx.load(), " also not available. Setting primary -1. Secondary also dead.");
-                            primary_idx.store(-1);
-                        } else
-                            LOG_DEBUG_MSG("Backup at", targets[i], " went down, setting backup as dead");
+                        {
+                            std::lock_guard l(m);
+                            if (!status.ok()) {
+                                LOG_ERR_MSG("Primary ", primary_idx.load(),
+                                            " also not available. Setting primary -1. Secondary also dead setting as -1.");
+                                primary_idx.store(-1);
+                            } else {
+                                LOG_DEBUG_MSG("Backup at", targets[i], " went down, setting backup as dead");
+                            }
+                            secondary_idx.store(-1);
+                        }
                     } else {
                         //
                     }
@@ -130,10 +141,10 @@ public:
 //                        secondary_idx.store(i);
                     }
                     if (primary_idx.load() == -1) {
-                        assign_new_primary(i);
                         request.set_is_primary(true);
                         request.set_sec_alive(false);
                         status = server_stubs_[i]->hb_tell(&context2, request, &response);
+                        assign_new_primary(i);
                         LOG_DEBUG_MSG("Primary not set, setting ", targets[i], " as primary");
                     }
                     else if (secondary_idx.load() == -1 && primary_idx.load() != i){
@@ -141,7 +152,6 @@ public:
                         request.set_sec_alive(false);
                         status = server_stubs_[i]->hb_tell(&context2, request, &response);
                         secondary_idx.store(i);
-
                         LOG_DEBUG_MSG("Secondary not set, setting", targets[i], " as secondary");
                     } else {
                         //do nothing
@@ -164,8 +174,11 @@ public:
         }
 
 //        assign_new_secondary();
-        response->set_primary(primary_idx.load());
-        response->set_secondary(secondary_idx.load());
+        {
+            std::lock_guard l(m);
+            response->set_primary(primary_idx.load());
+            response->set_secondary(secondary_idx.load());
+        }
         response->set_lease_start(time_monotonic());
         response->set_lease_duration(2e9);
 
