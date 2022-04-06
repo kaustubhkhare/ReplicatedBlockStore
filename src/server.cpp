@@ -221,7 +221,7 @@ public:
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
-        LOG_DEBUG_MSG("c_read function call")
+        LOG_DEBUG_MSG("c_read function call");
         if (current_server_state_ == ServerState::BACKUP) {
             if (readRequest->address() == 6) {
                 LOG_DEBUG_MSG("backup request to read a locked block");
