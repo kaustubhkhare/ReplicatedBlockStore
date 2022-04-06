@@ -451,7 +451,7 @@ public:
 
     void secondary_reintegration() {
         LOG_DEBUG_MSG("here");
-
+        long double reintegration_time_start = time_monotonic();
 
 //        assert_msg(current_server_state_ != ServerState::BACKUP,
 //                   "Reintegration called on primary");
@@ -479,6 +479,7 @@ public:
                    reintegration_response.addresses(i),
                   reintegration_response.data_lengths(i));
         }
+        int disk_records_written = reintegration_response.data_size();
         LOG_DEBUG_MSG("wrote " + std::to_string(reintegration_response.data_size()) + " DISK records");
         // get memory based writes
         reintegration_response.clear_data();
@@ -518,6 +519,9 @@ public:
 
         //set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("reintegration complete");
+        LOG_INFO_MSG("reint,", time_monotonic() - reintegration_time_start, "records_updated,",
+                     disk_records_written + reintegration_response.data_size());
+
     }
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
