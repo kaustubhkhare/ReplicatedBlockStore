@@ -44,7 +44,7 @@ public:
 
     bool unlocked_if_write_locked() {
         std::lock_guard l(m);
-        if (writers != 0) {
+        if (writer != 0) {
             assert(writer-- == 1);
         }
     }
