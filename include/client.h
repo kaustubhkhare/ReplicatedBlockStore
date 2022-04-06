@@ -195,6 +195,7 @@ public:
             secondary_idx = response.secondary();
             lease_start = response.lease_start();
             lease_duration = response.lease_duration();
+            LOG_DEBUG_MSG("primary_idx:", primary_idx, " secondary_idx:", secondary_idx);
 
 //            server_stubs_[primary_idx] = gRPCService::NewStub(
 //                    grpc::CreateChannel(servers[primary_idx], grpc::InsecureChannelCredentials()));
