@@ -32,72 +32,96 @@ using grpc::Status;
 using grpc::Channel;
 using grpc::ClientContext;
 
-class MyLock {
-    static std::mutex m;
-    unsigned int readers: 20;
-    unsigned int waiting_writers: 10;
-    unsigned int writer: 1;
-public:
-    MyLock() {
-        waiting_writers = readers = writer = 0;
-    }
-
-    bool unlocked_if_write_locked() {
-        std::lock_guard l(m);
-        if (writer != 0) {
-            assert(writer-- == 1);
-        }
-        LOG_DEBUG_MSG("unlocked EXCL lock");
-    }
-
-    void lock_shared() {
-        while (1) {
-            {
-                std::lock_guard l(m);
-                if (waiting_writers + writer == 0) {
-                    readers++;
-                    break;
-                }
-            }
-            usleep(10);
+//class MyLock {
+//    static std::mutex m;
+//    unsigned int readers: 20;
+//    unsigned int waiting_writers: 10;
+//    unsigned int writer: 1;
+//public:
+//    MyLock() {
+//        waiting_writers = readers = writer = 0;
+//    }
+//
+//    bool unlocked_if_write_locked() {
+//        std::lock_guard l(m);
+//        if (writer != 0) {
+//            assert(writer-- == 1);
+//        }
+//        LOG_DEBUG_MSG("unlocked EXCL lock");
+//    }
+//
+//    void lock_shared() {
+//        while (1) {
+//            {
+//                std::lock_guard l(m);
+//                if (waiting_writers + writer == 0) {
+//                    readers++;
+//                    break;
+//                }
+//            }
+//            usleep(10);
 //            LOG_DEBUG_MSG("Can't get the shared lock?");
-        }
+//        }
+//    }
+//    void unlock_shared() {
+//        std::lock_guard l(m);
+//        assert(writer == 0);
+//        assert(readers-- > 0);
+//    }
+//    void lock() {
+//        int expected = 0;
+//        while (1) {
+//            {
+//                std::lock_guard l(m);
+//                if (writer + readers + waiting_writers == expected) {
+//                    writer = 1;
+//                    break;
+//                } else if (expected == 0) {
+//                    waiting_writers++;
+//                    expected++;
+//                }
+//            }
+//            usleep(10);
+//        }
+//    }
+//    void unlock() {
+//        std::lock_guard l(m);
+//        assert(writer-- == 1);
+//    }
+//    bool try_lock() {
+//        std::lock_guard l(m);
+//        if (writer + readers + waiting_writers == 0) {
+//            writer = 1;
+//            return true;
+//        }
+//        return false;
+//    }
+//};
+
+struct MyLock {
+    std::mutex m;
+    void lock_shared() {
+        std::cerr << " + " << &m << "got shared_lock\n";
+        m.lock();
     }
     void unlock_shared() {
-        std::lock_guard l(m);
-        assert(writer == 0);
-        assert(readers-- > 0);
+        std::cerr << " - " << &m << "rel shared_lock\n";
+        m.unlock();
     }
     void lock() {
-        int expected = 0;
-        while (1) {
-            {
-                std::lock_guard l(m);
-                if (writer + readers + waiting_writers == expected) {
-                    writer = 1;
-                    break;
-                } else if (expected == 0) {
-                    waiting_writers++;
-                    expected++;
-                }
-            }
-            usleep(10);
-        }
+        std::cerr << " + " << &m << "got lock\n";
+        m.lock();
     }
     void unlock() {
-        std::lock_guard l(m);
-        assert(writer-- == 1);
+        std::cerr << " - " << &m << "rel lock\n";
+        m.unlock();
     }
     bool try_lock() {
-        std::lock_guard l(m);
-        if (writer + readers + waiting_writers == 0) {
-            writer = 1;
-            return true;
-        }
-        return false;
+        const auto ret = m.try_lock();
+        std::cerr << " ? " << &m << "try_lock" << ret <<"\n";
+        return ret;
     }
 };
-
 class gRPCServiceImpl final : public gRPCService::Service {
 private:
     enum class BlockState{DISK, LOCKED, MEMORY};
