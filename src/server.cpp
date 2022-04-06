@@ -529,7 +529,7 @@ public:
         LOG_DEBUG_MSG("WRITE request");
         if (writeRequest->address() > constants::FILE_SIZE ||
                 (writeRequest->address() + writeRequest->data_length()) > constants::FILE_SIZE) {
-            LOG_ERRR_MSG("Write request adddress ", writeRequest->address() + writeRequest->data_length(), " out of bounds");
+            LOG_ERR_MSG("Write request adddress ", writeRequest->address() + writeRequest->data_length(), " out of bounds");
             return Status::CANCELLED;
         }
 //        assert_msg(current_server_state_ != ServerState::PRIMARY,
