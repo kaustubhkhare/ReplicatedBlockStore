@@ -22,7 +22,8 @@ public:
             std::cout << stats.front() << "\n";
         } else {
             const auto sum = std::accumulate(stats.begin(), stats.end(), 0ULL);
-            std::cout <<(int) ( ((double) sum) / stats.size() ) << "\n";
+            std::sort(stats.begin(), stats.end());
+            std::cout <<(int) ( ((double) sum) / stats.size() ) << ", " << stats[stats.size()/2] << "\n";
         }
         std::cout << std::flush;
     }
@@ -55,6 +56,7 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
     Stats st(name + ",total");
     Clocker _(st);
     auto read_fn = [&] (const int n_threads) {
+        std::cerr << "starting readers\n";
         std::vector<std::thread> threads;
         Stats st(name + ",reads");
         Clocker _(st);
@@ -64,7 +66,7 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-//                    std::cerr << "read @ " << read_addr[st] << "\n";
+                    std::cerr << "read @ " << read_addr[st] << "\n";
                     if (read_addr[st] < 0)
                         continue;
                     client.read(read_addr[st], FONS.length());
@@ -76,6 +78,7 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
         std::cerr << "all read thread done!\n";
     };
     auto write_fn = [&] (const int n_threads) {
+        std::cerr << "starting writers\n";
         Stats st(name + ",writes");
         Clocker _(st);
         std::vector<std::thread> threads;
@@ -85,7 +88,7 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-//                    std::cerr << "write @ " << write_addr[st] << "\n";
+                    std::cerr << "write @ " << write_addr[st] << "\n";
                     if (write_addr[st] < 0)
                         continue;
                     client.write(write_addr[st], FONS.length(), FONS.c_str());
@@ -103,5 +106,6 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
     } else {
         f = std::async(std::launch::async, [&]() { write_fn(wthread); });
     }
+    std::cerr << "starting readersz\n";
     read_fn(rthread);
 }
