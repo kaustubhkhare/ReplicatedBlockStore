@@ -42,7 +42,10 @@ int test3(int argc, char *argv[]) {
     std::vector<int> addresses;
 
     for (int i = 0; i < address_size; i++) {
-        addresses.push_back(i*constants::BLOCK_SIZE);
+        if (i*constants::BLOCK_SIZE < constants::FILE_SIZE - constants::BLOCK_SIZE)
+            addresses.push_back(i*constants::BLOCK_SIZE);
+        else
+            addresses.push_back(rand() % (constants::FILE_SIZE-1));
     }
     int i = 0;
     while (no_of_iterations--) {
