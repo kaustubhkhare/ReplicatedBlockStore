@@ -84,7 +84,7 @@ public:
         compare = cmp;
     }
 
-   inline std::string read(int address, int length) {
+   inline std::string read(int address, int length, int retry = 10) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
 //        LOG_DEBUG_MSG("Starting read");
@@ -130,6 +130,12 @@ public:
             }
         } else {
 //            LOG_DEBUG_MSG("Sending read to primary ", servers[primary_idx]);
+            if (primary_idx == -1) {
+                LOG_ERR_MSG("No server found for write. Retrying ", (10 - retry + 1));
+                if (retry > 0)
+                    return read(address, length, retry - 1);
+                return "ERROR";
+            }
             status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
 //            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
         }
@@ -138,15 +144,19 @@ public:
             LOG_ERR_MSG("Error in reading ErrorCode: ", status.error_code(),
                           " Error: ", status.error_message());
             discover_servers(false);
+            if (retry > 0) {
+                LOG_DEBUG_MSG("Retrying read", (10 - retry + 1));
+                return read(address, length, retry - 1);
+            }
             return "ERROR";
         }
         return readResponse_p.data();
     }
 
-   inline int write(int address, int length, const char* wr_buffer) {
+   inline int write(int address, int length, const char* wr_buffer, int retry = 10) {
         if (time_monotonic() > (lease_start + lease_duration))
             discover_servers(false);
-//        LOG_DEBUG_MSG("Starting client write");
+        LOG_DEBUG_MSG("Starting client write");
         ClientContext context;
         ds::WriteResponse writeResponse;
         ds::WriteRequest writeRequest;
@@ -156,6 +166,13 @@ public:
 
 //        LOG_DEBUG_MSG("Sending write to server");
 //        LOG_DEBUG_MSG("primary is ", servers.at(primary_idx));
+        if (primary_idx == -1) {
+            LOG_ERR_MSG("No primary server found for write. Retrying ", (10 - retry + 1));
+            if (retry > 0)
+                return write(address, length, wr_buffer, retry - 1);
+            return ENONET;
+        }
+
         Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
 
 //        LOG_DEBUG_MSG("Wrote to server ", writeResponse.bytes_written(), " bytes");
@@ -163,6 +180,10 @@ public:
         if (!status.ok()){
             LOG_ERR_MSG("Error in writing ErrorCode: ", status.error_code(), " Error: ", status.error_message());
             discover_servers(false);
+            if (retry > 0) {
+                LOG_DEBUG_MSG("Retrying write", (10 - retry + 1));
+                return write(address, length, wr_buffer, retry - 1);
+            }
             return ENONET;
         }
         return writeResponse.bytes_written();
@@ -195,6 +216,7 @@ public:
             secondary_idx = response.secondary();
             lease_start = response.lease_start();
             lease_duration = response.lease_duration();
+            LOG_DEBUG_MSG("primary_idx:", primary_idx, " secondary_idx:", secondary_idx);
 
 //            server_stubs_[primary_idx] = gRPCService::NewStub(
 //                    grpc::CreateChannel(servers[primary_idx], grpc::InsecureChannelCredentials()));

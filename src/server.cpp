@@ -528,6 +528,7 @@ public:
         LOG_DEBUG_MSG("wrtiing in primary with state ", ((state == BlockState::DISK) ? "DISK" : "MEM"));
         writeToMap(writeRequest, &state);
 
+        bool write_sent_to_backup = false;
         LOG_DEBUG_MSG("temp_data size:" + std::to_string(temp_data.size()));
         if (current_backup_state == BackupState::ALIVE) {
             ClientContext context;
@@ -536,6 +537,8 @@ public:
             Status status = stub_->s_write(&context, *writeRequest, &ackResponse);
             if (!status.ok()) {
                 LOG_ERR_MSG("error ", status.error_code(), status.error_message());
+            } else {
+                write_sent_to_backup = true;
             }
 
             const static bool SERVER_CRASH_AFTER_BACKUP_WRITE = std::getenv("SERVER_CRASH_AFTER_BACKUP_WRITE");
@@ -556,7 +559,7 @@ public:
         }
         writeResponse->set_bytes_written(writeRequest->data_length());
 
-        if (current_backup_state == BackupState::ALIVE) {
+        if (current_backup_state == BackupState::ALIVE && write_sent_to_backup) {
             LOG_DEBUG_MSG("commit to backup");
             ClientContext context;
             ds::CommitRequest commitRequest;

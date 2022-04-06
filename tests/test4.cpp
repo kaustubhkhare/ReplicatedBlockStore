@@ -24,13 +24,16 @@ int test4(int argc, char *argv[]) {
     }
     int i = 0;
     while (1) {
+//        sleep(2);
         std::cout << "Iteration #" << i++ << '\n';
         int offset = addresses[iteration % address_size];
         std::string v = get_string_with_length(length, iteration++);
         std::cout << "Write @ " << offset << '\n';
-        client->write(offset, v.size(), v.c_str());
-        std::cout << "Read @ " << offset << '\n';
-        std::string read_str = client->read(offset, length);
+        int status = client->write(offset, v.size(), v.c_str());
+        if (status != ENONET) {
+            std::cout << "Read @ " << offset << '\n';
+            std::string read_str = client->read(offset, length);
+        }
     }
     return 0;
 }
