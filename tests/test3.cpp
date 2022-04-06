@@ -51,7 +51,6 @@ int test3(int argc, char *argv[]) {
         std::cout << "Write @ " << offset << '\n';
         int status = client->write(offset, v.size(), v.c_str());
         if (status != ENONET) {
-            std::cout << "Status not ENONET\n";
             std::cout << "Read @ " << offset << '\n';
             std::string read_str = client->read(offset, length);
         }
