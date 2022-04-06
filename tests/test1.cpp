@@ -67,7 +67,6 @@ int test1(int argc, char** argv) {
     client.client = GRPCClient::get_client(argc, argv);
     for (auto aligned_ratio: ALIGNED_OPS_RATIO) {
         for (auto ops: NUM_OPS) {
-            if (aligned_ratio != 1) ops /= 2;
             const int ADDR_LIMIT = 2e3;
             const auto distr = Distribution::ZIPF;
             zipf_distribution<int> zipf(ADDR_LIMIT);

@@ -270,9 +270,23 @@ public:
 //        }
         while(1) {
             can_read_all = readBlockMap(blocks);
+            for (const int &b: blocks) {
+                std::lock_guard lk(mapLock);
+
+                for (int i = 0; i < 4096; i++) {
+                    int block_addr = b * 4096 + i;
+                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
+                        can_read_all = false;
+                        break;
+                    }
+                }
+                if (!can_read_all)
+                    break;
+            }
+//        while(!can_read_all) {
+//            can_read_all = true;
 //            for (const int &b: blocks) {
 //                std::lock_guard lk(mapLock);
-
 //                for (int i = 0; i < 4096; i++) {
 //                    int block_addr = b * 4096 + i;
 //                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
@@ -283,10 +297,10 @@ public:
 //                if (!can_read_all)
 //                    break;
 //            }
-            if (!can_read_all) {
-                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
-                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
-            } else break;
+//            if (!can_read_all) {
+//                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
+//                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
+//            } else break;
         }
     }
 
@@ -471,7 +485,7 @@ public:
 
     void secondary_reintegration() {
         LOG_DEBUG_MSG("here");
-
+        long double reintegration_time_start = time_monotonic();
 
 //        assert_msg(current_server_state_ != ServerState::BACKUP,
 //                   "Reintegration called on primary");
@@ -499,6 +513,7 @@ public:
                    reintegration_response.addresses(i),
                   reintegration_response.data_lengths(i));
         }
+        int disk_records_written = reintegration_response.data_size();
         LOG_DEBUG_MSG("wrote " + std::to_string(reintegration_response.data_size()) + " DISK records");
         // get memory based writes
         reintegration_response.clear_data();
@@ -538,11 +553,19 @@ public:
 
         //set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("reintegration complete");
+        LOG_INFO_MSG("reint,", time_monotonic() - reintegration_time_start, "records_updated,",
+                     disk_records_written + reintegration_response.data_size());
+
     }
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
                    ds::WriteResponse *writeResponse) {
         LOG_DEBUG_MSG("WRITE request");
+        if (writeRequest->address() > constants::FILE_SIZE ||
+                (writeRequest->address() + writeRequest->data_length()) > constants::FILE_SIZE) {
+            LOG_ERR_MSG("Write request adddress ", writeRequest->address() + writeRequest->data_length(), " out of bounds");
+            return Status::CANCELLED;
+        }
 //        assert_msg(current_server_state_ != ServerState::PRIMARY,
 //                   "Reintegration called on backup");
         if (current_server_state_ != ServerState::PRIMARY) {
