@@ -21,13 +21,15 @@ int test3(int argc, char *argv[]) {
     }
 
     std::string server_address{"localhost:60052"}, cmp{"0"};
-    for (int i = 1; i < argc - 1; ++i) {
+    for (int i = 1; i < argc - 2; ++i) {
         if(!strcmp(argv[i], "-lb")) {
             server_address = std::string{argv[i+1]};
         } else if(!strcmp(argv[i], "-compare")) {
             cmp = std::string{argv[i+1]};
         }
     }
+    int no_of_iterations = std::stoi(argv[argc-1]);
+
     LOG_DEBUG_MSG("Connecting to ", server_address);
 
     grpc::ChannelArguments args;
@@ -43,7 +45,7 @@ int test3(int argc, char *argv[]) {
         addresses.push_back(i + rand() % constants::BLOCK_SIZE);
     }
     int i = 0;
-    while (1) {
+    while (no_of_iterations--) {
 //        sleep(2);
         std::cout << "Iteration #" << i++ << '\n';
         int offset = addresses[iteration % address_size];
