@@ -138,6 +138,8 @@ private:
     std::atomic<ServerState> current_server_state_;
     std::unique_ptr <gRPCService::Stub> stub_;
     std::unordered_map<int, std::shared_ptr<Info>> temp_data;
+    std::unordered_map<int, int> blockMap;
+    std::mutex block_mutex;
     using fut_t = std::future<std::optional<int>>;
     std::deque<fut_t> pending_futures;
     MyLock reintegration_lock;
@@ -232,6 +234,23 @@ public:
 //        mapLock.unlock();
         LOG_DEBUG_MSG("temp map unlocked");
     }
+
+    void writeToBlockMap(const std::vector<int> &block_num, bool add = 1) {
+        std::lock_guard l(block_mutex);
+        for (auto num : block_num) {
+            const int finalv = (blockMap[num]+= add);
+            if (finalv == 0) blockMap.erase(num);
+        }
+    }
+
+    bool readBlockMap(const std::vector<int> &block_num) {
+        std::lock_guard l(block_mutex);
+        for (auto num : block_num) {
+            if (blockMap[num]) return false;
+        }
+        return true;
+    }
+
     explicit gRPCServiceImpl(
             std::shared_ptr<Channel> channel, const std::string filename) :
             stub_(gRPCService::NewStub(channel)), per_block_locks(constants::BLOCK_SIZE) {
@@ -249,24 +268,25 @@ public:
 //        if (readRequest->address() == 6) {
 //            LOG_DEBUG_MSG("backup request to read a block");
 //        }
-        while(!can_read_all) {
-            can_read_all = true;
-            for (const int &b: blocks) {
-                std::lock_guard lk(mapLock);
-                for (int i = 0; i < 4096; i++) {
-                    int block_addr = b * 4096 + i;
-                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
-                        can_read_all = false;
-                        break;
-                    }
-                }
-                if (!can_read_all)
-                    break;
-            }
+        while(1) {
+            can_read_all = readBlockMap(blocks);
+//            for (const int &b: blocks) {
+//                std::lock_guard lk(mapLock);
+
+//                for (int i = 0; i < 4096; i++) {
+//                    int block_addr = b * 4096 + i;
+//                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
+//                        can_read_all = false;
+//                        break;
+//                    }
+//                }
+//                if (!can_read_all)
+//                    break;
+//            }
             if (!can_read_all) {
                 LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
                 std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
-            }
+            } else break;
         }
     }
 
@@ -641,6 +661,8 @@ public:
         LOG_DEBUG_MSG("Starting backup server write");
         BlockState state = BlockState::LOCKED;
         writeToMap(writeRequest, &state);
+        std::vector<int> blocks = get_blocks_involved(writeRequest->address(), writeRequest->data_length());
+        writeToBlockMap(blocks, 1);
         LOG_DEBUG_MSG("Pausing write in backup server");
         LOG_DEBUG_MSG("waking from sloeep");
         return Status::OK;
@@ -669,6 +691,8 @@ public:
         std::shared_ptr<Info> info1 = temp_data[commitRequest->address()];
         info1->state = state;
         temp_data[commitRequest->address()] = info1;
+        std::vector<int> blocks = get_blocks_involved(commitRequest->address(), commitRequest->data_length());
+        writeToBlockMap(blocks, -1);
 //        updateMap(commitRequest->address(), state);
 //        temp_data.erase(it);
         return Status::OK;
