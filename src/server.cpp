@@ -41,6 +41,14 @@ public:
     MyLock() {
         waiting_writers = readers = writer = 0;
     }
+
+    bool unlocked_if_write_locked() {
+        std::lock_guard l(m);
+        if (writers != 0) {
+            assert(writer-- == 1);
+        }
+    }
+
     void lock_shared() {
         while (1) {
             {
@@ -268,6 +276,7 @@ public:
             } else {
                 LOG_DEBUG_MSG("setting backup dead");
                 set_backup_state(BackupState::DEAD);
+                reintegration_lock.unlocked_if_write_locked();
             }
 //        }
         LOG_DEBUG_MSG("exiting from hb_tell");
