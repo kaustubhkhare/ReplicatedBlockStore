@@ -22,6 +22,7 @@ public:
             std::cout << stats.front() << "\n";
         } else {
             const auto sum = std::accumulate(stats.begin(), stats.end(), 0ULL);
+            std::cout <<(int) ( ((double) sum) / stats.size() ) << "\n";
             std::sort(stats.begin(), stats.end());
             std::cout <<(int) ( ((double) sum) / stats.size() ) << ", " << stats[stats.size()/2] << "\n";
         }
@@ -88,10 +89,13 @@ inline void run_test(std::string name, C& client, const std::vector<int>& read_a
                 int st = (i * n) / n_threads;
                 const int en = ((i + 1) * n) / n_threads;
                 while (st != en) {
-                    std::cerr << "write @ " << write_addr[st] << "\n";
+               //     std::cerr << st << " write @ " << write_addr[st] << "\n";
+                    if (write_addr[st] < 0)
+                        continue;
                     if (write_addr[st] < 0)
                         continue;
                     client.write(write_addr[st], FONS.length(), FONS.c_str());
+                    std::cerr << "\tdone @ " << write_addr[st] << "\n";
 //                    std::cerr << "\tdone @ " << write_addr[st] << "\n";
                     st++;
                 }

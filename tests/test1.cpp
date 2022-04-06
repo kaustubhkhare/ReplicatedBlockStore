@@ -36,13 +36,13 @@ struct ClientInterface {
 const std::vector<double> RW_RATIOS = {4, 2, 1, 0.5, 0.25};
 const std::vector<std::pair<int, int> > RW_THREADS
             = {
-//               {1, 0}, {2, 0}, {4, 0}, {8, 0}, // all reads
-//               {0, 1}, {0, 2}, {0, 4}, {0, 8}, // all writes
+               {1, 0}, {2, 0}, {4, 0}, {8, 0}, // all reads
+               {0, 1}, {0, 2}, {0, 4}, {0, 8}, // all writes
                {1, 1}, {4, 1}, {1, 4}          // mix
             };
 
-const std::vector<int> NUM_OPS = {1200};
-const std::vector<double> ALIGNED_OPS_RATIO = {0.5};
+const std::vector<int> NUM_OPS = {5000};
+const std::vector<double> ALIGNED_OPS_RATIO = {1, .5};
 
 
 template <class T, class... Ts>
@@ -77,10 +77,10 @@ int test1(int argc, char** argv) {
                 const auto n_read = ops * (rw_ratio / rw_sum);
                 const auto n_write = ops - n_read;
                 const auto read_v = get(zipf, n_read, aligned_ratio);
-                const auto write_v = get(zipf, n_read, aligned_ratio);
+                const auto write_v = get(zipf, n_write, aligned_ratio);
                 for (auto [rthread, wthread]: RW_THREADS) {
                     const auto test_name = make_comma_sep("test", aligned_ratio, ops, rw_ratio, rthread, wthread);
-                    std::cerr << "running: " << test_name << "\n";
+                    std::cerr << "running: " << test_name << " [" << read_v.size() << ", " << write_v.size() << "]\n";
                     run_test(test_name, client, read_v, write_v, rthread, wthread, false);
                     client.reset();
                 }

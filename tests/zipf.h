@@ -5,7 +5,7 @@ constexpr static int FOUR_K = 4096;
 template <template <class...> class Dis, class IntType, class... Ts>
 auto get(Dis<IntType, Ts...>& dis, const int n, double aligned_ratio)
 {
-    std::vector<IntType> a = dis.get(n * FOUR_K * (1 - aligned_ratio), false);
+    std::vector<IntType> a = dis.get(n * (1 - aligned_ratio), false);
     {
         std::vector<IntType> b = dis.get(n * (aligned_ratio), true);
         a.insert(a.end(), b.begin(), b.end());
