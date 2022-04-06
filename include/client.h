@@ -134,6 +134,7 @@ public:
                 LOG_ERR_MSG("No server found for write. Retrying ", (10 - retry + 1));
                 if (retry > 0)
                     return read(address, length, retry - 1);
+                return "ERROR";
             }
             status = server_stubs_[primary_idx]->c_read(&context, readRequest, &readResponse_p);
 //            LOG_DEBUG_MSG("Read from server" + readResponse_p.data());
@@ -169,6 +170,7 @@ public:
             LOG_ERR_MSG("No primary server found for write. Retrying ", (10 - retry + 1));
             if (retry > 0)
                 return write(address, length, wr_buffer, retry - 1);
+            return ENONET;
         }
 
         Status status = server_stubs_[primary_idx]->c_write(&context, writeRequest, &writeResponse);
