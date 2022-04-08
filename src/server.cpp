@@ -32,71 +32,71 @@ using grpc::Status;
 using grpc::Channel;
 using grpc::ClientContext;
 
-//class MyLock {
-//    static std::mutex m;
-//    unsigned int readers: 20;
-//    unsigned int waiting_writers: 10;
-//    unsigned int writer: 1;
-//public:
-//    MyLock() {
-//        waiting_writers = readers = writer = 0;
-//    }
-//
-//    bool unlocked_if_write_locked() {
-//        std::lock_guard l(m);
-//        if (writer != 0) {
-//            assert(writer-- == 1);
-//        }
-//        LOG_DEBUG_MSG("unlocked EXCL lock");
-//    }
-//
-//    void lock_shared() {
-//        while (1) {
-//            {
-//                std::lock_guard l(m);
-//                if (waiting_writers + writer == 0) {
-//                    readers++;
-//                    break;
-//                }
-//            }
-//            usleep(10);
-//            LOG_DEBUG_MSG("Can't get the shared lock?");
-//        }
-//    }
-//    void unlock_shared() {
-//        std::lock_guard l(m);
-//        assert(writer == 0);
-//        assert(readers-- > 0);
-//    }
-//    void lock() {
-//        int expected = 0;
-//        while (1) {
-//            {
-//                std::lock_guard l(m);
-//                if (writer + readers + waiting_writers == expected) {
-//                    writer = 1;
-//                    break;
-//                } else if (expected == 0) {
-//                    waiting_writers++;
-//                    expected++;
-//                }
-//            }
-//            usleep(10);
-//        }
-//    }
-//    void unlock() {
-//        std::lock_guard l(m);
-//        assert(writer-- == 1);
-//    }
-//    bool try_lock() {
-//        std::lock_guard l(m);
-//        if (writer + readers + waiting_writers == 0) {
-//            writer = 1;
-//            return true;
-//        }
-//        return false;
-//    }
-//};
+class MyLock1 {
+    static std::mutex m;
+    unsigned int readers: 20;
+    unsigned int waiting_writers: 10;
+    unsigned int writer: 1;
+public:
+    MyLock1() {
+        waiting_writers = readers = writer = 0;
+    }
+
+    bool unlocked_if_write_locked() {
+        std::lock_guard l(m);
+        if (writer != 0) {
+            assert(writer-- == 1);
+        }
+        LOG_DEBUG_MSG("unlocked EXCL lock");
+    }
+
+    void lock_shared() {
+        while (1) {
+            {
+                std::lock_guard l(m);
+                if (waiting_writers + writer == 0) {
+                    readers++;
+                    break;
+                }
+            }
+            usleep(10);
+            LOG_DEBUG_MSG("Can't get the shared lock?");
+        }
+    }
+    void unlock_shared() {
+        std::lock_guard l(m);
+        assert(writer == 0);
+        assert(readers-- > 0);
+    }
+    void lock() {
+        int expected = 0;
+        while (1) {
+            {
+                std::lock_guard l(m);
+                if (writer + readers + waiting_writers == expected) {
+                    writer = 1;
+                    break;
+                } else if (expected == 0) {
+                    waiting_writers++;
+                    expected++;
+                }
+            }
+            usleep(10);
+        }
+    }
+    void unlock() {
+        std::lock_guard l(m);
+        assert(writer-- == 1);
+    }
+    bool try_lock() {
+        std::lock_guard l(m);
+        if (writer + readers + waiting_writers == 0) {
+            writer = 1;
+            return true;
+        }
+        return false;
+    }
+};
 
 struct MyLock {
     std::mutex m;
@@ -208,45 +208,62 @@ public:
         transition(ServerState::PRIMARY);
         LOG_INFO_MSG(" -> BACKUP");
     }
-    void writeToMap(const ds::WriteRequest *writeRequest, BlockState* state) {
-//        mapLock.lock();
+    template <class T>
+    void writeToMap(const T *writeRequest, BlockState* state) {
         LOG_DEBUG_MSG("temp map locked");
         {
             LOG_DEBUG_MSG("Writing to ", writeRequest->address());
             std::lock_guard lk(mapLock);
-            temp_data[(int) writeRequest->address()] = std::make_shared<Info>(*state, writeRequest->data_length(),
-                                                                              writeRequest->data());
+            temp_data[(int) writeRequest->address()] =
+                    std::make_shared<Info>(*state, writeRequest->data_length(),
+                                           writeRequest->data());
         }
-//        mapLock.unlock();
         LOG_DEBUG_MSG("temp map unlocked");
     }
 
     void updateMap(const int address, BlockState& state) {
-//        mapLock.lock();
         LOG_DEBUG_MSG("temp map locked");
         {
             LOG_DEBUG_MSG("Updatinh to ",address);
 //            std::lock_guard lk(mapLock);
-            std::shared_ptr<Info> info = temp_data[address];
-            info->state = state;
-//            temp_data[address] = info;
+            if (temp_data.find(address) != temp_data.end()) {
+                LOG_DEBUG_MSG("Updating state to disk");
+                std::shared_ptr <Info> info = temp_data[address];
+                info->state = state;
+            } else {
+                LOG_DEBUG_MSG("Locked entry not found");
+            }
         }
-//        mapLock.unlock();
         LOG_DEBUG_MSG("temp map unlocked");
     }
 
-    void writeToBlockMap(const std::vector<int> &block_num, bool add = 1) {
+    void writeToBlockMap(const std::vector<int> &block_num, int add) {
+        LOG_DEBUG_MSG("writing to block amp", blockMap.size());
         std::lock_guard l(block_mutex);
         for (auto num : block_num) {
-            const int finalv = (blockMap[num]+= add);
-            if (finalv == 0) blockMap.erase(num);
+            if (blockMap.find(num) != blockMap.end()) {
+                LOG_DEBUG_MSG("Block amp value retrieved", blockMap[num]);
+            } else {
+                LOG_DEBUG_MSG("Block map value added", blockMap[num]);
+            }
+            blockMap[num]+= add;
+            const int finalv = blockMap[num];
+            LOG_DEBUG_MSG("finalv ", blockMap[num]);
+            if (finalv == 0) {
+                blockMap.erase(num);
+                LOG_DEBUG_MSG("Erased vaalue");
+            }
         }
+        LOG_DEBUG_MSG("Leaving write to block map");
     }
 
     bool readBlockMap(const std::vector<int> &block_num) {
         std::lock_guard l(block_mutex);
         for (auto num : block_num) {
-            if (blockMap[num]) return false;
+            if (blockMap[num]) {
+                LOG_DEBUG_MSG("value found in map, blocking read");
+                return false;
+            }
         }
         return true;
     }
@@ -265,9 +282,6 @@ public:
         // change this to get signaled when the entry is removed
         // from the map (write to that block is complete)
         bool can_read_all = false;
-//        if (readRequest->address() == 6) {
-//            LOG_DEBUG_MSG("backup request to read a block");
-//        }
         while(1) {
             can_read_all = readBlockMap(blocks);
 //            for (const int &b: blocks) {
@@ -284,7 +298,7 @@ public:
 //                    break;
 //            }
             if (!can_read_all) {
-                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
+//                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
                 std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
             } else break;
         }
@@ -294,7 +308,6 @@ public:
         ds::ReadResponse *readResponse) {
         LOG_DEBUG_MSG("c_read function call");
         if (current_server_state_ == ServerState::BACKUP) {
-
             wait_before_read(readRequest);
             LOG_DEBUG_MSG("retuirned from wait");
         }
@@ -305,19 +318,15 @@ public:
         auto buf = std::make_unique<char[]>(buf_size);
         ::bzero(buf.get(), buf_size);
         int bytes_read = read(buf.get(), readRequest->address(), buf_size);
-//        LOG_DEBUG_MSG(std::string(buf.get(), bytes_read), " bytes read");
         readResponse->set_data(buf.get(), bytes_read);
         return Status::OK;
     }
 
     Status hb_check(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-
         return Status::OK;
     }
 
     Status hb_tell(ServerContext *context, const ds::HBRequest *request,ds::HBResponse *response) {
-
-//        if (request->has_is_primary()) {
             if (request->is_primary()) {
                 LOG_DEBUG_MSG("becoming primary");
                 transition_to_primary();
@@ -328,19 +337,14 @@ public:
                 LOG_DEBUG_MSG("reintegration started at backup");
                 // start in async
             secondary_reintegration();
-//            backup_state.store(BackupState::ALIVE);
             }
-//        }
-//        if (request->has_sec_alive()) {
             if (request->sec_alive()) {
                 LOG_DEBUG_MSG("setting backup alive");
                 set_backup_state(BackupState::ALIVE);
             } else {
                 LOG_DEBUG_MSG("setting backup dead");
                 set_backup_state(BackupState::DEAD);
-//                reintegration_lock.unlock();
             }
-//        }
         LOG_DEBUG_MSG("exiting from hb_tell");
         return Status::OK;
     }
@@ -398,8 +402,6 @@ public:
     Status p_reintegration(ServerContext *context,
                            const ds::ReintegrationRequest* reintegrationRequest,
                            ds::ReintegrationResponse* reintegrationResponse) {
-//        assert_msg(current_server_state_ != ServerState::PRIMARY,
-//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("reintegration called at primary");
         this->backup_state = BackupState::REINTEGRATION;
         // return the entries in temp_data that are in disk state.
@@ -429,8 +431,6 @@ public:
     Status p_reintegration_phase_two(ServerContext *context,
                                      const ds::ReintegrationRequest* reintegrationRequest,
                                      ds::ReintegrationResponse* reintegrationResponse) {
-//        assert_msg(current_server_state_ != ServerState::PRIMARY,
-//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("reintegration phase 2 started, stalling all writes");
         // pause all writes for now!
         LOG_DEBUG_MSG("TAKING LOCK");
@@ -454,8 +454,6 @@ public:
     Status p_reintegration_complete(ServerContext *context,
                                     const ds::ReintegrationRequest* reintegrationRequest,
                                     ds::ReintegrationResponse* reintegrationResponse) {
-//        assert_msg(current_server_state_ != ServerState::PRIMARY,
-//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("reintegraton complete lock unlocked");
         set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("RELEASING LOCK");
@@ -470,11 +468,6 @@ public:
     }
 
     void secondary_reintegration() {
-        LOG_DEBUG_MSG("here");
-
-
-//        assert_msg(current_server_state_ != ServerState::BACKUP,
-//                   "Reintegration called on primary");
         LOG_DEBUG_MSG("here");
         ClientContext context;
         ds::ReintegrationRequest reintegration_request;
@@ -535,16 +528,13 @@ public:
         if (!status.ok()) {
             LOG_ERR_MSG("error: ", status.error_code(), status.error_message());
         }
-
-        //set_backup_state(BackupState::ALIVE);
+        set_backup_state(BackupState::ALIVE);
         LOG_DEBUG_MSG("reintegration complete");
     }
 
     Status c_write(ServerContext *context, const ds::WriteRequest *writeRequest,
                    ds::WriteResponse *writeResponse) {
         LOG_DEBUG_MSG("WRITE request");
-//        assert_msg(current_server_state_ != ServerState::PRIMARY,
-//                   "Reintegration called on backup");
         if (current_server_state_ != ServerState::PRIMARY) {
             return Status::CANCELLED;
         }
@@ -624,7 +614,7 @@ public:
             const int len = writeRequest->data_length();
             LOG_DEBUG_MSG("waddr to ret = ", waddr);
             fut_t f = std::async(std::launch::async,
-                [&, waddr]() -> std::optional<int> {
+                [&, waddr, len]() -> std::optional<int> {
                     ClientContext context;
                     ds::CommitRequest commitRequest;
                     commitRequest.set_address(waddr);
@@ -652,8 +642,6 @@ public:
 
     Status s_write(ServerContext *context, const ds::WriteRequest *writeRequest,
         ds::AckResponse *ackResponse) {
-//        assert_msg(current_server_state_ != ServerState::BACKUP,
-//                   "Reintegration called on backup");
         if (current_server_state_ != ServerState::BACKUP) {
             LOG_ERR_MSG("calling s_write at primary whyyy?");
             return Status::CANCELLED;
@@ -670,30 +658,22 @@ public:
 
     Status s_commit(ServerContext *context, const ds::CommitRequest *commitRequest,
         ds::AckResponse *ackResponse) {
-//        assert_msg(current_server_state_ != ServerState::BACKUP,
-//                   "Reintegration called on backup");
         LOG_DEBUG_MSG("calling commit on backup");
         std::lock_guard lk(mapLock);
 
-        LOG_DEBUG_MSG("Committing to ", commitRequest->address());
+        LOG_DEBUG_MSG("Committing to ", commitRequest->address(), commitRequest->data_length());
         const auto it = temp_data.find(commitRequest->address());
         if (it == temp_data.end()) {
             LOG_ERR_MSG("it==tmp_data.end()");
         }
-        LOG_ERR_MSG("it==tmp_data.end() 1");
         auto& info = it->second;
-        LOG_ERR_MSG("it==tmp_data.end() 2");
         get_write_locks(commitRequest);
         write(info->data.c_str(), commitRequest->address(), info->length);
         release_write_locks(commitRequest);
         BlockState state = BlockState::DISK;
-//        writeToMap(commitRequest, &state);
-//        std::shared_ptr<Info> info1 = temp_data[commitRequest->address()];
-//        info1->state = state;
-//        temp_data[commitRequest->address()] = info1;
-//        std::vector<int> blocks = get_blocks_involved(commitRequest->address(), commitRequest->data_length());
-//        writeToBlockMap(blocks, -1);
         updateMap(commitRequest->address(), state);
+        std::vector<int> blocks = get_blocks_involved(commitRequest->address(), commitRequest->data_length());
+        writeToBlockMap(blocks, -1);
 //        temp_data.erase(it);
         return Status::OK;
     }
