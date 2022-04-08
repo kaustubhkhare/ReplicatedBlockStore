@@ -251,7 +251,7 @@ public:
             LOG_DEBUG_MSG("finalv ", blockMap[num]);
             if (finalv == 0) {
                 blockMap.erase(num);
-                LOG_DEBUG_MSG("Erased vaalue");
+                LOG_DEBUG_MSG("Erased value");
             }
         }
         LOG_DEBUG_MSG("Leaving write to block map");
