@@ -90,6 +90,7 @@ public:
 //                LOG_DEBUG_MSG("Status ErrorCode: ", status.error_code(), " Error: ", status.error_message());
                 if (!status.ok()) {
                     LOG_DEBUG_MSG("status not okay");
+                    LOG_DEGUB_MSG(status.error_message());
                     ClientContext context1;
                     if (available_hosts.count(i) > 0)
                         available_hosts.erase(i);
