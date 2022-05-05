@@ -268,44 +268,45 @@ public:
 //        if (readRequest->address() == 6) {
 //            LOG_DEBUG_MSG("backup request to read a block");
 //        }
-        while(1) {
-            can_read_all = readBlockMap(blocks);
-            for (const int &b: blocks) {
-                std::lock_guard lk(mapLock);
-
-                for (int i = 0; i < 4096; i++) {
-                    int block_addr = b * 4096 + i;
-                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
-                        can_read_all = false;
-                        LOG_DEBUG_MSG("can_read_all = false");
-                        LOG_DEBUG_MSG("block_addr = ", block_addr);
-                        break;
-                    }
-                }
-                if (!can_read_all)
-                    break;
-            }
-//        while(!can_read_all) {
-//            can_read_all = true;
+//        while(1) {
+//            can_read_all = readBlockMap(blocks);
 //            for (const int &b: blocks) {
 //                std::lock_guard lk(mapLock);
+//
 //                for (int i = 0; i < 4096; i++) {
 //                    int block_addr = b * 4096 + i;
 //                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
 //                        can_read_all = false;
+//                        LOG_DEBUG_MSG("can_read_all = false");
+//                        LOG_DEBUG_MSG("block_addr = ", block_addr);
 //                        break;
 //                    }
 //                }
 //                if (!can_read_all)
 //                    break;
 //            }
-            if (!can_read_all) {
-                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
-                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
-            } else
-                break;
+        while(!can_read_all) {
+            can_read_all = true;
+            for (const int &b: blocks) {
+                std::lock_guard lk(mapLock);
+                for (int i = 0; i < 4096; i++) {
+                    int block_addr = b * 4096 + i;
+                    if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
+                        can_read_all = false;
+                        break;
+                    }
+                }
+                if (!can_read_all)
+                    break;
+            }
         }
+        if (!can_read_all) {
+            LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
+            std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
+        } else
+            break;
     }
+
 
     Status c_read(ServerContext *context, const ds::ReadRequest *readRequest,
         ds::ReadResponse *readResponse) {
