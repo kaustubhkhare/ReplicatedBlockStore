@@ -299,10 +299,11 @@ public:
 //                if (!can_read_all)
 //                    break;
 //            }
-//            if (!can_read_all) {
-//                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
-//                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
-//            } else break;
+            if (!can_read_all) {
+                LOG_DEBUG_MSG("read waiting on locked: ", readRequest->address());
+                std::this_thread::sleep_for(std::chrono::nanoseconds((int)1e5));
+            } else
+                break;
         }
     }
 
