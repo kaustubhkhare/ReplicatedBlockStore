@@ -80,7 +80,7 @@ public:
     void start_check() {
         while (true) {
             for (int i = 0; i < targets.size(); i++) {
-//                LOG_DEBUG_MSG("Testing ", targets[i]);
+                LOG_DEBUG_MSG("Testing ", targets[i]);
                 Status status;
                 ClientContext context;
                 ds::HBResponse response;
