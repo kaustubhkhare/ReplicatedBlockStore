@@ -42,7 +42,7 @@ const std::vector<std::pair<int, int> > RW_THREADS
                 {4, 1}
             };
 
-const std::vector<int> NUM_OPS = {1e4};
+const std::vector<int> NUM_OPS = {(int)1e4};
 const std::vector<double> ALIGNED_OPS_RATIO = {1};
 
 
