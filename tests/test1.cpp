@@ -33,16 +33,17 @@ struct ClientInterface {
     void reset() {}
 };
 
-const std::vector<double> RW_RATIOS = {4, 2, 1, 0.5, 0.25};
+const std::vector<double> RW_RATIOS = {1};
 const std::vector<std::pair<int, int> > RW_THREADS
             = {
-               {1, 0}, {2, 0}, {4, 0}, {8, 0}, // all reads
-               {0, 1}, {0, 2}, {0, 4}, {0, 8}, // all writes
-               {1, 1}, {4, 1}, {1, 4}          // mix
+//               {1, 0}, {2, 0}, {4, 0}, {8, 0}, // all reads
+//               {0, 1}, {0, 2}, {0, 4}, {0, 8}, // all writes
+//               {1, 1}, {4, 1}, {1, 4}          // mix
+                {4, 1}
             };
 
-const std::vector<int> NUM_OPS = {5400};
-const std::vector<double> ALIGNED_OPS_RATIO = {0.5, 1};
+const std::vector<int> NUM_OPS = {1e4};
+const std::vector<double> ALIGNED_OPS_RATIO = {1};
 
 
 template <class T, class... Ts>
