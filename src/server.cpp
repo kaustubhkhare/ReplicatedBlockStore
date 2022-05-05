@@ -277,6 +277,8 @@ public:
                     int block_addr = b * 4096 + i;
                     if (temp_data.count(block_addr) && temp_data[block_addr]->state == BlockState::LOCKED) {
                         can_read_all = false;
+                        LOG_DEBUG_MSG("can_read_all = false");
+                        LOG_DEBUG_MSG("block_addr = ", block_addr);
                         break;
                     }
                 }
